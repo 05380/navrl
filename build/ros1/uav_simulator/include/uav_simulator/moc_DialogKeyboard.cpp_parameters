@@ -1,0 +1,10 @@
+-DROS_BUILD_SHARED_LIBS=1
+-DROS_BUILD_SHARED_LIBS=1
+-DROS_PACKAGE_NAME="uav_simulator"
+-DROSCONSOLE_BACKEND_LOG4CXX
+-DLIBBULLET_VERSION=2.88
+-DLIBBULLET_VERSION_GT_282
+-DBOOST_TEST_DYN_LINK
+-o
+/home/tiko/navrl_ws/build/ros1/uav_simulator/include/uav_simulator/moc_DialogKeyboard.cpp
+/home/tiko/navrl_ws/src/ros1/uav_simulator/include/uav_simulator/DialogKeyboard.h
