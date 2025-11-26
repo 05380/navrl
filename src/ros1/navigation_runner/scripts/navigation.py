@@ -25,14 +25,16 @@ import os
 
 class Navigation:
     def __init__(self, cfg):
+        # 配合参数初始化
         self.cfg = cfg
-        self.lidar_hbeams = int(360/self.cfg.sensor.lidar_hres)
+        self.lidar_hbeams = int(360/self.cfg.sensor.lidar_hres)#雷达水平线束数
         self.raypoints = []
         self.dynamic_obstacles = []
         self.robot_size = 0.3 # radius
+        #从配置计算出涉嫌角度分辨率
         self.raycast_vres = ((self.cfg.sensor.lidar_vfov[1] - self.cfg.sensor.lidar_vfov[0]))/(self.cfg.sensor.lidar_vbeams - 1) * np.pi/180.0
         self.raycast_hres = self.cfg.sensor.lidar_hres * np.pi/180.0
-
+        # 状态变量初始化
         self.goal = None
         self.goal_received = False
         self.target_dir = None
@@ -40,49 +42,60 @@ class Navigation:
         self.has_action = False
         self.laser_points_msg = None
 
+        # 控制模式配置
         self.height_control = False 
         self.px4_control = rospy.get_param('rl/use_px4', True)
 
         self.use_policy_server = False
 
         self.odom_received = False
+
+        # ROS通信接口配置
+         #PX4控制模式
         if (self.px4_control):
             self.odom_sub = rospy.Subscriber("/mavros/local_position/odom", Odometry, self.odom_callback)
             self.state_sub = rospy.Subscriber("/mavros/state", State, self.state_callback)
-            self.action_pub = rospy.Publisher("/mavros/setpoint_raw/local", PositionTarget, queue_size=10)
-            self.pose_pub = rospy.Publisher("/mavros/setpoint_position/local", PoseStamped, queue_size=10)
+
+            self.action_pub = rospy.Publisher("/mavros/setpoint_raw/local", PositionTarget, queue_size=10)#发布速度与高度
+            self.pose_pub = rospy.Publisher("/mavros/setpoint_position/local", PoseStamped, queue_size=10)#发布位置
+
             self.set_mode_client = rospy.ServiceProxy("mavros/set_mode", SetMode)
-            self.arming_client = rospy.ServiceProxy("mavros/cmd/arming", CommandBool)
+            self.arming_client = rospy.ServiceProxy("mavros/cmd/arming", CommandBool)#解锁电机
 
             self.mavros_state = None
             self.offb_set_mode = SetModeRequest()
             self.offb_set_mode.custom_mode = 'OFFBOARD'
             self.arm_cmd = CommandBoolRequest()
             self.arm_cmd.value = True
+         # 仿真模式
         else:
             self.odom_sub = rospy.Subscriber("/CERLAB/quadcopter/odom", Odometry, self.odom_callback)
+
             self.action_pub = rospy.Publisher("/CERLAB/quadcopter/cmd_vel", TwistStamped, queue_size=10)
             self.pose_pub = rospy.Publisher("/CERLAB/quadcopter/setpoint_pose", PoseStamped, queue_size=10)
 
-        self.goal_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.goal_callback)
-        self.raycast_vis_pub = rospy.Publisher("/rl_navigation/raycast", MarkerArray, queue_size=10)
-        self.cmd_vis_pub = rospy.Publisher("/rl_navigation/cmd", MarkerArray, queue_size=10)
-        self.goal_vis_pub = rospy.Publisher("rl_navigation/goal", MarkerArray, queue_size=10)
-        self.rollout_traj_pub = rospy.Publisher("/rollout_traj", Path, queue_size=10)
-        self.dynamic_obstacle_vis_pub = rospy.Publisher("/rl_navigation/in_range_dynamic_obstacles", MarkerArray, queue_size=10)
+        # 目标点订阅与可视化发布器（仿真和px4模式都需要做的）
+        self.goal_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.goal_callback)#RViz 里 2D Nav Goal 按钮发的目标
 
+        self.raycast_vis_pub = rospy.Publisher("/rl_navigation/raycast", MarkerArray, queue_size=10)#激光射线可视化
+        self.cmd_vis_pub = rospy.Publisher("/rl_navigation/cmd", MarkerArray, queue_size=10)#动作箭头可视化
+        self.goal_vis_pub = rospy.Publisher("rl_navigation/goal", MarkerArray, queue_size=10)#目标可视化
+        self.rollout_traj_pub = rospy.Publisher("/rollout_traj", Path, queue_size=10)#预测轨迹可视化
+        self.dynamic_obstacle_vis_pub = rospy.Publisher("/rl_navigation/in_range_dynamic_obstacles", MarkerArray, queue_size=10)#动态障碍可视化
+        # 强化学习模型加载
         if (not self.use_policy_server):
             self.policy = self.init_model()
             self.policy.eval()
 
-
+        # 安全线程启动
         # safety thread
         self.safety_stop = False
         safety_thread = threading.Thread(target = self.safety_check)
         safety_thread.start()
-
+        #起飞程序
         self.takeoff()
   
+    #构造观测/动作 Spec & 加载 PPO
     def init_model(self):
         observation_dim = 8
         num_dim_each_dyn_obs_state = 10
@@ -109,6 +122,20 @@ class Navigation:
         file_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ckpts")
         checkpoint = "navrl_checkpoint.pt"
 
+        """
+        os.path.join(file_dir, checkpoint): 拼接完整文件路径
+        例如：/home/tiko/navrl_ws/src/ros1/navigation_runner/scripts/ckpts/navrl_checkpoint.pt
+        
+        torch.load(): PyTorch的模型加载函数
+        读取.pt文件中的模型权重数据
+        
+        map_location=self.cfg.device: 将模型映射到指定设备（CPU或GPU）
+        这确保模型能在不同设备间正确加载
+        
+        policy.load_state_dict(): 将加载的权重应用到网络中
+        替换网络中随机初始化的权重
+        使网络具有训练好的参数
+        """
         policy.load_state_dict(torch.load(os.path.join(file_dir, checkpoint), map_location=self.cfg.device))
         return policy
 
@@ -168,6 +195,12 @@ class Navigation:
                 input("[nav-ros]: Press Enter to CONTINUE motion!\n")
                 self.safety_stop = False
 
+    """
+    输入：当前位置 pos 和起始角度 start_angle。
+    调 occupancy_map/raycast 服务，返回一堆点（打包成一维数组，每 3 个值一个点）。
+    解包成 raypoints（list of [x,y,z]），同时保存原始 response.points 
+    到self.laser_points_msg，给安全模块用。
+    """
     def get_raycast(self, pos: np.array , start_angle: float):
         raypoints = []
         try:
@@ -185,6 +218,7 @@ class Navigation:
                                self.cfg.sensor.lidar_hres
                                )
             num_points = int(len(response.points)/3)
+
             self.laser_points_msg = response.points
             for i in range(num_points):
                 p = [response.points[3*i+0], response.points[3*i+1], response.points[3*i+2]]
@@ -198,14 +232,18 @@ class Navigation:
         dynamic_obstacle_vel = torch.zeros(self.cfg.algo.feature_extractor.dyn_obs_num, 3, dtype=torch.float, device=self.cfg.device)
         dynamic_obstacle_size = torch.zeros(self.cfg.algo.feature_extractor.dyn_obs_num, 3, dtype=torch.float, device=self.cfg.device)
         try:
+            "从 on-board detector 获取周围 distance_range=4m 内的动态障碍。"
             distance_range = 4.0
             pos_msg = Point()
             pos_msg.x = pos[0]
             pos_msg.y = pos[1]
             pos_msg.z = pos[2]
+
             get_obstacle = rospy.ServiceProxy("onboard_detector/get_dynamic_obstacles", GetDynamicObstacles)
             response = get_obstacle(pos_msg, distance_range)
+
             total_obs_num = len(response.position)
+            #为每个障碍物填充到固定长度的张量：
             for i in range(self.cfg.algo.feature_extractor.dyn_obs_num):
                 if (i < total_obs_num):
                     pos_vec = response.position[i]
@@ -217,7 +255,7 @@ class Navigation:
         except rospy.service.ServiceException as e:
             print("[nav-ros]: dynamic obstacle func err!")   
         return dynamic_obstacle_pos, dynamic_obstacle_vel, dynamic_obstacle_size
-
+    #获取静态障碍物的位置、尺寸、角度（可能是长方体障碍物）。
     def get_static_obstacles(self):
         static_obstacle_pos = []
         static_obstacle_size = []
@@ -225,13 +263,15 @@ class Navigation:
         try:
             get_static_obstacles_server = rospy.ServiceProxy("occupancy_map/get_static_obstacles", GetStaticObstacles)
             static_obstacle_response = get_static_obstacles_server()
+
             static_obstacle_pos = static_obstacle_response.position
             static_obstacle_size = static_obstacle_response.size
             static_obstacle_angle = static_obstacle_response.angle
         except rospy.service.ServiceException as e:
             print("[nav-ros]: static obstacle func err!")
         return static_obstacle_pos, static_obstacle_size, static_obstacle_angle
-           
+    
+    #定期更新激光雷达扫描数据，为强化学习决策提供环境感知信息。
     def raycast_callback(self, event):
         if not self.odom_received or not self.goal_received:
             return
@@ -357,12 +397,13 @@ class Navigation:
             return action_vel_world   
     
     def get_action(self, pos: torch.Tensor, vel: torch.Tensor, goal: torch.Tensor): # use world velocity
+        #计算相对目标位置与距离
         rpos = goal - pos
         distance = rpos.norm(dim=-1, keepdim=True)
         distance_2d = rpos[..., :2].norm(dim=-1, keepdim=True)
         distance_z = rpos[..., 2].unsqueeze(-1)
 
-
+        #构造基于目标方向的局部坐标系
         target_dir_2d = self.target_dir.clone()
         target_dir_2d[2] = 0.
 
@@ -372,7 +413,8 @@ class Navigation:
         # "relative" velocity
         vel_g = vec_to_new_frame(vel, target_dir_2d).squeeze(0).squeeze(0) # goal velocity
 
-        # drone_state = torch.cat([rpos_clipped, orientation, vel_g], dim=-1).squeeze(1)
+        # drone state拼接
+        #  drone_state = torch.cat([rpos_clipped, orientation, vel_g], dim=-1).squeeze(1)
         drone_state = torch.cat([rpos_clipped_g, distance_2d, distance_z, vel_g], dim=-1).unsqueeze(0)
 
         # Lidar States
@@ -381,7 +423,7 @@ class Navigation:
         lidar_scan = self.cfg.sensor.lidar_range - lidar_scan
 
 
-        # dynamic obstacle states
+        # 动态障碍物特征dynamic obstacle states
         dynamic_obstacle_pos = self.dynamic_obstacles[0].clone()
         dynamic_obstacle_vel = self.dynamic_obstacles[1].clone()
         dynamic_obstacle_size = self.dynamic_obstacles[2].clone()
@@ -410,7 +452,7 @@ class Navigation:
         #                             closest_dyn_obs_width.unsqueeze(1), closest_dyn_obs_height.unsqueeze(1)], dim=-1).unsqueeze(0).unsqueeze(0)
         dyn_obs_states = torch.cat([closest_dyn_obs_rpos_gn, closest_dyn_obs_distance_2d, closest_dyn_obs_distance_z, closest_dyn_obs_vel_g, \
                                     closest_dyn_obs_width.unsqueeze(1), closest_dyn_obs_height.unsqueeze(1)], dim=-1).unsqueeze(0).unsqueeze(0)
-        # states
+        # 组合成tensordict观测 states
         obs = TensorDict({
             "agents": TensorDict({
                 "observation": TensorDict({
@@ -421,7 +463,13 @@ class Navigation:
                 })
             })
         })
-
+        #判断是否使用RL
+        """
+        check_obstacle 逻辑：
+        看前方 1/4 和后方 1/4 的 Lidar 区域，若全部距离都很大（>0.2）就认为没有静态障碍。
+        再看动态障碍特征是否全 0。
+        只要有一种存在，就返回 True
+        """
         has_obstacle_in_range = self.check_obstacle(lidar_scan, dyn_obs_states)
         # if (False):
         if (has_obstacle_in_range):

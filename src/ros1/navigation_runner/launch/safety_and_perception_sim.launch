@@ -1,4 +1,5 @@
 <launch>
+<!--文件头和参数定义-->
     <arg name="use_px4" default="false" />
     <arg name="use_prebuilt_map" default="false" />
     <arg name="use_real_detector" default="false" />
@@ -8,7 +9,7 @@
     <!-- PX4 -->
     <param name="rl/use_px4" value="$(arg use_px4)" />
 
-    <!-- mapping -->
+    <!-- mapping地图管理配置 -->
     <group if="$(arg use_prebuilt_map)">
         <group if="$(arg use_px4)">
 	        <rosparam file="$(find navigation_runner)/cfg/mapping/sim/prebuilt_map_px4.yaml" ns="/occupancy_map"  />
@@ -27,7 +28,7 @@
     </group>
 	<node pkg="map_manager" type="occupancy_map_node" name="occupancy_map_node" output="screen" />
 
-    <!-- detection -->
+    <!-- detection 检测系统配置-->
     <group if="$(arg use_real_detector)">
         <group if="$(arg use_px4)">
             <rosparam file="$(find navigation_runner)/cfg/detection/sim/real_detector_px4.yaml" ns="/onboard_detector" />
@@ -48,12 +49,12 @@
         <node pkg="onboard_detector" type="fake_detector_node" name="fake_detector_node" output="screen" />
     </group>
 
-    <!-- safety -->
+    <!-- safety 安全系统配置-->
     <group if="$(arg use_safety_shield)">
  	    <include file="$(find navigation_runner)/launch/safety_shield.launch" />
     </group>
 	
-    <!-- visualization -->
+    <!-- visualization 可视化配置-->
     <group if="$(arg rviz)">
  	    <include file="$(find navigation_runner)/launch/rviz.launch" />
     </group>
