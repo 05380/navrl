@@ -1,0 +1,8 @@
+prefix=/home/tiko/navrl_ws/devel
+
+Name: navigation_runner
+Description: Description of navigation_runner
+Version: 1.0.0
+Cflags: -I/home/tiko/navrl_ws/devel/include -I/home/tiko/navrl_ws/src/ros1/navigation_runner/include
+Libs: -L${prefix}/lib -lnavigation_runner
+Requires: roscpp rospy std_msgs message_generation geometry_msgs
