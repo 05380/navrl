@@ -196,19 +196,22 @@ class Navigation:
                 self.safety_stop = False
 
     """
+    调用地图节点的 occupancy_map/raycast 服务，从当前位置 pos 出发
+    按给定起始水平角 start_angle 做 3D 射线扫描，得到一圈激光“打到的点”列表，
+    并缓存原始点数组到 self.laser_points_msg。
+
     输入：当前位置 pos 和起始角度 start_angle。
-    调 occupancy_map/raycast 服务，返回一堆点（打包成一维数组，每 3 个值一个点）。
-    解包成 raypoints（list of [x,y,z]），同时保存原始 response.points 
-    到self.laser_points_msg，给安全模块用。
+   输出：raypoints: List[List[float]]，每个元素是 [x,y,z]，表示某条射线的击中点坐标（或最大量程端点）。
     """
     def get_raycast(self, pos: np.array , start_angle: float):
         raypoints = []
         try:
-            raycast = rospy.ServiceProxy("occupancy_map/raycast", RayCast)
+            raycast = rospy.ServiceProxy("occupancy_map/raycast", RayCast)#创建指向地图节点 occupancyMap.cpp 中 getRayCast 的客户端；
             pos_msg = Point()
             pos_msg.x = pos[0]
             pos_msg.y = pos[1]
             pos_msg.z = pos[2]
+
             response = raycast(pos_msg,
                                start_angle,
                                self.cfg.sensor.lidar_range, 
@@ -217,9 +220,10 @@ class Navigation:
                                self.cfg.sensor.lidar_vbeams, 
                                self.cfg.sensor.lidar_hres
                                )
-            num_points = int(len(response.points)/3)
-
+            
+            num_points = int(len(response.points)/3)#response.points 是一个扁平的 float 数组 [x0,y0,z0,x1,y1,z1,...]。每 3 个数是一点，所以总点数是 len(points)/3。
             self.laser_points_msg = response.points
+
             for i in range(num_points):
                 p = [response.points[3*i+0], response.points[3*i+1], response.points[3*i+2]]
                 raypoints.append(p)
@@ -240,9 +244,9 @@ class Navigation:
             pos_msg.z = pos[2]
 
             get_obstacle = rospy.ServiceProxy("onboard_detector/get_dynamic_obstacles", GetDynamicObstacles)
-            response = get_obstacle(pos_msg, distance_range)
+            response = get_obstacle(pos_msg, distance_range)#请求当前位置与半径
 
-            total_obs_num = len(response.position)
+            total_obs_num = len(response.position)#实际返回的障碍物数量
             #为每个障碍物填充到固定长度的张量：
             for i in range(self.cfg.algo.feature_extractor.dyn_obs_num):
                 if (i < total_obs_num):
@@ -262,7 +266,7 @@ class Navigation:
         static_obstacle_angle = []
         try:
             get_static_obstacles_server = rospy.ServiceProxy("occupancy_map/get_static_obstacles", GetStaticObstacles)
-            static_obstacle_response = get_static_obstacles_server()
+            static_obstacle_response = get_static_obstacles_server()#返回静态障碍物的位置、尺寸、角度列表
 
             static_obstacle_pos = static_obstacle_response.position
             static_obstacle_size = static_obstacle_response.size
@@ -307,6 +311,7 @@ class Navigation:
         self.goal_received = True
         self.stable_times = 0
 
+    #用来把机体系速度转换到世界坐标系
     def quaternion_to_rotation_matrix(self, quaternion):
         # w, x, y, z = quaternion
         w = quaternion.w
@@ -328,45 +333,60 @@ class Navigation:
         # return true if there is obstacles in the range
         # has_static = not torch.all(lidar_scan == 0.)
         # has_static = not torch.all(lidar_scan[..., 1:] < 0.2) # hardcode to tune
-        quarter_size = lidar_scan.shape[2] // 4
+
+        quarter_size = lidar_scan.shape[2] // 4#每个扇区的beam数
         first_quarter_check, last_quarter_check = torch.all(lidar_scan[:, :, :quarter_size, 1:] < 0.2), torch.all(lidar_scan[:, :, -quarter_size:, 1:] < 0.2)
+
         has_static = (not first_quarter_check) or (not last_quarter_check)
         has_dynamic = not torch.all(dyn_obs_states == 0.)
         return has_static or has_dynamic
 
-    def get_safe_action(self, vel_world, action_vel_world):
+    def get_safe_action(self, vel_world, action_vel_world):#action_vel_world为调用ppo获得的预测的期望速度
+        """
+        （2）调用 get_action 得到 RL 策略的期望速度：
+        python cmd_vel_world = self.get_action(pos, vel_world, goal).squeeze(...).numpy()
+        （3）再调用 get_safe_action 做安全裁剪！！！，其实就是调用get_safe_action服务结合当前位置与ppo生成的速度进行安全裁剪。
+        python safe_cmd_vel_world = self.get_safe_action(vel_world, cmd_vel_world)
+        """ 
         safe_action = np.zeros(3)
         try:
-            pos_msg = Point(x=self.odom.pose.pose.position.x, y=self.odom.pose.pose.position.y, z=self.odom.pose.pose.position.z)
-            get_safe_action = rospy.ServiceProxy("rl_navigation/get_safe_action", GetSafeAction)
-            vel_msg = Vector3(x=vel_world[0].item(), y=vel_world[1].item(), z=vel_world[2].item())
+            
+            pos_msg = Point(x=self.odom.pose.pose.position.x, y=self.odom.pose.pose.position.y, z=self.odom.pose.pose.position.z)#从self.odom中获取当前位置信息
+            get_safe_action = rospy.ServiceProxy("rl_navigation/get_safe_action", GetSafeAction) #get_safe_action 现在是一个可调用对象，后面可以 get_safe_action(...) 来发请求。
+            vel_msg = Vector3(x=vel_world[0].item(), y=vel_world[1].item(), z=vel_world[2].item()) #ppo 算法输出的期望速度
             action_vel_msg = Vector3(x=action_vel_world[0], y=action_vel_world[1], z=action_vel_world[2])
             max_vel = np.sqrt(3. * self.cfg.algo.actor.action_limit**2)
+            #初始化动态障碍物列表
             obstacle_pos_list = []
             obstacle_vel_list = []
             obstacle_size_list = []
+            #填充动态障碍物列表
             for i in range(len(self.dynamic_obstacles[0])):
                 if (self.dynamic_obstacles[2][i][0] != 0):
                     obs_pos = Vector3(x=self.dynamic_obstacles[0][i][0].item(), y=self.dynamic_obstacles[0][i][1].item(), z=self.dynamic_obstacles[0][i][2].item())
                     obs_vel = Vector3(x=self.dynamic_obstacles[1][i][0].item(), y=self.dynamic_obstacles[1][i][1].item(), z=self.dynamic_obstacles[1][i][2].item())
                     obs_size = Vector3(x=self.dynamic_obstacles[2][i][0].item(), y=self.dynamic_obstacles[2][i][1].item(), z=self.dynamic_obstacles[2][i][2].item())
+
                     obstacle_pos_list.append(obs_pos)
                     obstacle_vel_list.append(obs_vel)
                     obstacle_size_list.append(obs_size)
             response = get_safe_action(pos_msg, vel_msg, self.robot_size, obstacle_pos_list, obstacle_vel_list,\
                                     obstacle_size_list, self.laser_points_msg, self.cfg.sensor.lidar_range,\
                                     max(self.raycast_vres, self.raycast_hres), max_vel, action_vel_msg)
-            safe_action = np.array([response.safe_action.x, response.safe_action.y, response.safe_action.z])
+            safe_action = np.array([response.safe_action.x, response.safe_action.y, response.safe_action.z])#取出 x, y, z 三个分量，封装为 numpy 数组 [vx, vy, vz]，覆盖之前的 safe_action = np.zeros(3)，得到真正安全速度。
             return safe_action
         except rospy.service.ServiceException as e:
             # print("[nav-ros]: no safety running!")
             return action_vel_world   
 
+
+
+
     def get_safe_action_map(self, vel_world, action_vel_world):
-        safe_action = np.zeros(3)
+        safe_action = np.zeros(3)#应当写成safe_action_map
         try:
             pos_msg = Point(x=self.odom.pose.pose.position.x, y=self.odom.pose.pose.position.y, z=self.odom.pose.pose.position.z)
-            get_safe_action = rospy.ServiceProxy("rl_navigation/get_safe_action_map", GetSafeActionMap)
+            get_safe_action = rospy.ServiceProxy("rl_navigation/get_safe_action_map", GetSafeActionMap)#应该写成get_safe_action_map
             vel_msg = Vector3(x=vel_world[0].item(), y=vel_world[1].item(), z=vel_world[2].item())
             action_vel_msg = Vector3(x=action_vel_world[0], y=action_vel_world[1], z=action_vel_world[2])
             max_vel = np.sqrt(3. * self.cfg.algo.actor.action_limit**2)
@@ -396,12 +416,13 @@ class Navigation:
             # print("[nav-ros]: no safety running!")
             return action_vel_world   
     
+    #输入当前位姿、当前速度、目标位置，输出速度
     def get_action(self, pos: torch.Tensor, vel: torch.Tensor, goal: torch.Tensor): # use world velocity
         #计算相对目标位置与距离
         rpos = goal - pos
-        distance = rpos.norm(dim=-1, keepdim=True)
-        distance_2d = rpos[..., :2].norm(dim=-1, keepdim=True)
-        distance_z = rpos[..., 2].unsqueeze(-1)
+        distance = rpos.norm(dim=-1, keepdim=True)#三维距离
+        distance_2d = rpos[..., :2].norm(dim=-1, keepdim=True)#水平距离
+        distance_z = rpos[..., 2].unsqueeze(-1)#高度差
 
         #构造基于目标方向的局部坐标系
         target_dir_2d = self.target_dir.clone()
@@ -413,7 +434,7 @@ class Navigation:
         # "relative" velocity
         vel_g = vec_to_new_frame(vel, target_dir_2d).squeeze(0).squeeze(0) # goal velocity
 
-        # drone state拼接
+        # 将以上的机器人状态进行拼接
         #  drone_state = torch.cat([rpos_clipped, orientation, vel_g], dim=-1).squeeze(1)
         drone_state = torch.cat([rpos_clipped_g, distance_2d, distance_z, vel_g], dim=-1).unsqueeze(0)
 
@@ -435,7 +456,6 @@ class Navigation:
         closest_dyn_obs_distance_2d = closest_dyn_obs_rpos_g[..., :2].norm(dim=-1, keepdim=True)
         closest_dyn_obs_distance_z = closest_dyn_obs_rpos_g[..., 2].unsqueeze(-1)
         closest_dyn_obs_rpos_gn = closest_dyn_obs_rpos_g / closest_dyn_obs_distance.clamp(1e-6)
-
 
 
         closest_dyn_obs_vel_g = vec_to_new_frame(dynamic_obstacle_vel.unsqueeze(0), target_dir_2d).squeeze(0)
@@ -465,8 +485,10 @@ class Navigation:
         })
         #判断是否使用RL
         """
+
         check_obstacle 逻辑：
-        看前方 1/4 和后方 1/4 的 Lidar 区域，若全部距离都很大（>0.2）就认为没有静态障碍。
+        看前方 1/4 和后方 1/4 的 Lidar 区域，有无障碍物
+        若全部距离都很大（>0.2）就认为没有静态障碍。
         再看动态障碍特征是否全 0。
         只要有一种存在，就返回 True
         """
@@ -495,12 +517,22 @@ class Navigation:
                     print("[nav-ros]: Policy server err!")
                     vel_world = torch.tensor([0., 0., 0.], device=self.cfg.device).unsqueeze(0).unsqueeze(0)#把返回的长度 3 动作转为形状 [1,1,3] 的张量，放回世界系速度。
         else:
-            vel_world =  (goal - pos)/torch.norm(goal - pos) * self.cfg.algo.actor.action_limit
+            vel_world =  (goal - pos)/torch.norm(goal - pos) * self.cfg.algo.actor.action_limit#无障碍：直接 (goal - pos)/norm * action_limit，沿目标方向的最大速度
         return vel_world
 
-
+    #作用：在当前环境状态下，反复调用 get_action 做前向“滚动预测”，得到未来一段时间内的轨迹点，用来可视化或分析策略行为。
     def get_rollout_traj(self, pos: torch.Tensor, vel: torch.Tensor, goal: torch.Tensor, dt=0.1, horizon=3.0):
-        traj = [pos.cpu().detach().numpy()]
+        """
+       输入：
+       （1）pos：当前世界系位置（torch.Tensor，形如 [3] 或 [1,1,3]）。
+        （2）vel：当前世界系速度。
+        （3）goal：目标位置。
+        （4）dt：时间步长，每次前向积分的时间间隔（默认 0.1s）。
+        （5）horizon：预测总时长（默认 3.0s）。
+        输出：traj：numpy 数组，形状约为 [N, 3]，表示从当前到 horizon 内的离散位置序列。
+        """
+       
+        traj = [pos.cpu().detach().numpy()] #（1）把初始位置 pos 拷到 CPU、detach，转成 numpy；（2）作为轨迹的第一个点放入列表 traj。
         t = 0.
         while (t < horizon):
             vel_curr_world = self.get_action(pos, vel, goal)
@@ -508,9 +540,10 @@ class Navigation:
             pos = (pos + dt * vel_curr_world).squeeze(0).squeeze(0)
             vel = vel_curr_world.squeeze(0).squeeze(0)
             traj.append(pos.cpu().detach().numpy())
-        return np.array(traj)
+        return np.array(traj)#把 Python 列表 [step0_pos, step1_pos, ...] 转成 numpy 数组返回。
 
     def control_callback(self, event):
+        #前置检查阶段
         if (not self.odom_received):
             return
 
@@ -518,18 +551,25 @@ class Navigation:
             self.pose_pub.publish(self.takeoff_pose)
             return
 
-        if (self.safety_stop):
+        if (self.safety_stop):#安全急停
             self.pose_pub.publish(self.stop_pose)
             return
-        
+        #朝向对齐阶段（先转向再平移）
         start_time = time.time()
-        # check for angle
+        
         goal_angle = np.arctan2(self.target_dir[1].cpu().numpy(), self.target_dir[0].cpu().numpy())
         _, _, curr_angle = tf.transformations.euler_from_quaternion([self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y, self.odom.pose.pose.orientation.z, self.odom.pose.pose.orientation.w])
         angle_diff = np.abs(goal_angle - curr_angle)
         if (angle_diff > math.pi):
-            angle_diff = np.abs(angle_diff - math.pi * 2)
+            angle_diff = np.abs(angle_diff - math.pi * 2)#（1）先算两者差值绝对值。（2）如果大于 π，则通过减去 2π 做 wrap，使角度差在 [0, π] 之间。
         if (angle_diff >= 0.1):
+            """
+            （1）若差值大于约 0.1 rad（约 5.7°），则：
+                1）保持当前位置不变；
+                2）仅修改姿态，使 yaw 对准目标方向 goal_angle；
+                3）通过 pose_pub 发布姿态 setpoint，让飞控先转向。
+            （2）然后 return，本周期不做平移控制。
+            """
             pose_msg = PoseStamped()
             pose_msg.pose = self.odom.pose.pose
             quaternion = tf.transformations.quaternion_from_euler(0, 0, goal_angle)
@@ -543,7 +583,7 @@ class Navigation:
             self.stable_times += 1
             if (self.stable_times <= 10):
                 return
-
+        #构造当前状态（pos / vel / goal）
         pos = torch.tensor([self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z], device=self.cfg.device)
         goal = torch.tensor([self.goal.pose.position.x, self.goal.pose.position.y, self.goal.pose.position.z], device=self.cfg.device)
         orientation = torch.tensor([self.odom.pose.pose.orientation.w, self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y, self.odom.pose.pose.orientation.z], device=self.cfg.device)
@@ -551,15 +591,17 @@ class Navigation:
         vel_body = np.array([self.odom.twist.twist.linear.x, self.odom.twist.twist.linear.y, self.odom.twist.twist.linear.z])
         vel_world = torch.tensor(rot @ vel_body, device=self.cfg.device, dtype=torch.float) # world vel
         
-        # get RL action from model
+        # RL 策略动作与安全裁剪
         cmd_vel_world = self.get_action(pos, vel_world, goal).squeeze(0).squeeze(0).detach().cpu().numpy()        
         self.cmd_vel_world = cmd_vel_world.copy()
 
-        # get safe action
-        safe_cmd_vel_world = self.get_safe_action(vel_world, cmd_vel_world)
+       
+        safe_cmd_vel_world = self.get_safe_action(vel_world, cmd_vel_world) # 调用安全层对get_action函数获取的动作做裁剪
         # safe_cmd_vel_world = self.get_safe_action_map(vel_world, cmd_vel_world)
         # safe_cmd_vel_world[2] = 0
         self.safe_cmd_vel_world = safe_cmd_vel_world.copy()
+
+        #转换到“无倾斜”的机体系局部速度
         quat_no_tilt = tf.transformations.quaternion_from_euler(0, 0, curr_angle)
         quat_msg = Quaternion()
         quat_msg.w = quat_no_tilt[3]
@@ -567,9 +609,10 @@ class Navigation:
         quat_msg.y = quat_no_tilt[1]
         quat_msg.z = quat_no_tilt[2]
         rot_no_tilt = self.quaternion_to_rotation_matrix(quat_msg)
-        safe_cmd_vel_local = np.linalg.inv(rot_no_tilt) @ safe_cmd_vel_world
 
-        # Goal condition
+        safe_cmd_vel_local = np.linalg.inv(rot_no_tilt) @ safe_cmd_vel_world#世界速度 → 局部速度
+
+        # 根据与目标的距离进行相关的速度调节
         distance = (pos - goal).norm() 
         if (distance <= 3. and distance > 0.3):
             if (np.linalg.norm(safe_cmd_vel_local) != 0):
@@ -579,7 +622,7 @@ class Navigation:
             safe_cmd_vel_local *= 0.
             safe_cmd_vel_world *= 0.
 
-        # final action
+        # 根据控制模式构造最终控制消息
         if (self.px4_control):
             final_cmd_vel = PositionTarget()
             final_cmd_vel.coordinate_frame = final_cmd_vel.FRAME_LOCAL_NED
