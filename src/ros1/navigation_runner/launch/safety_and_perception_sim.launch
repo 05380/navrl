@@ -1,15 +1,25 @@
 <launch>
-<!--文件头和参数定义-->
+<!--   
+主要完成：
+（1）根据参数选择是否用 PX4、本地/预构建地图、真/假检测器、是否启用安全盾；
+（2）加载相应的 YAML 配置；
+（3）启动 map_manager（占用栅格地图）、onboard_detector（动态障碍检测或假障碍）、safeAction 安全盾和 RViz 可视化。
+ -->
+
+<!--参数与全局设置-->
     <arg name="use_px4" default="false" />
     <arg name="use_prebuilt_map" default="false" />
-    <arg name="use_real_detector" default="false" />
+    <arg name="use_real_detector" default="false" /><!--是否用真实检测器（YOLO+detector_node），否则用 fake_detector。-->
     <arg name="use_safety_shield" default="true" />
     <arg name="rviz" default="true" />
     
     <!-- PX4 -->
     <param name="rl/use_px4" value="$(arg use_px4)" />
 
-    <!-- mapping地图管理配置 -->
+    <!--mapping地图管理配置 
+    根据 use_prebuilt_map 和 use_px4 选择不同的 occupancy_map 参数 YAML：
+    启动地图节点：
+    -->
     <group if="$(arg use_prebuilt_map)">
         <group if="$(arg use_px4)">
 	        <rosparam file="$(find navigation_runner)/cfg/mapping/sim/prebuilt_map_px4.yaml" ns="/occupancy_map"  />
@@ -39,6 +49,7 @@
         <node pkg="onboard_detector" type="detector_node" name="detector_node" output="screen" />
 	    <node pkg="onboard_detector" type="yolo_detector_node.py" name="yolo_detector_node" output="screen" />
     </group>
+    
     <group unless="$(arg use_real_detector)">
         <group if="$(arg use_px4)">
             <rosparam file="$(find navigation_runner)/cfg/detection/sim/fake_detector_px4.yaml" />

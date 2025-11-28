@@ -1,3 +1,4 @@
+#跑demo用的预构建地图配置文件
 sensor_input_mode: 0 # 0 camera 1: lidar
 localization_mode: 1 # 0: pose (default) 1: odom
 # depth_image_topic: /camera/depth/image_raw
