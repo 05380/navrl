@@ -1,3 +1,6 @@
+<!--启动仿真环境——
+打开 Gazebo + 加载指定 world + 生成四旋翼模型 + 
+配好基础话题/TF，让后面的导航、感知、安全节点在这个环境里工作。-->
 <launch>
   <arg name="paused" value="false"/>
   <arg name="verbose" value="false"/>

@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
-
+"""
+只是一个入口脚本 / 启动节点：
+- 用 hydra 读取 cfg/train.yaml 配置；
+- 调用 rospy.init_node("navigation_node") 初始化 ROS 节点；
+- nav = Navigation(cfg)：创建 Navigation 对象；
+- nav.run()：启动导航主循环；
+- rospy.spin()：进入 ROS 事件循环。
+"""
 import rospy
+#明 navigation_node.py 依赖 navigation.py 提供的 Navigation 类。
 from navigation import Navigation
 import hydra
 import os

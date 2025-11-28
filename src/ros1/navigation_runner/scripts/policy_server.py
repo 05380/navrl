@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3，GetPolicyInference服务的实现
 import rospy
 import hydra
 import os

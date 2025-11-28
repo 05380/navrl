@@ -23,6 +23,13 @@ import time
 import threading
 import os
 
+"""
+ 定义核心类 Navigation，里面实现了整个导航逻辑
+- ROS 订阅/发布（odom、目标点、控制指令、可视化等）
+- 调用地图服务、检测服务、安全盾服务；
+- 加载 PPO 强化学习策略网络；
+- 起飞流程、主循环 run()、安全检查线程等。
+"""
 class Navigation:
     def __init__(self, cfg):
         # 配合参数初始化
