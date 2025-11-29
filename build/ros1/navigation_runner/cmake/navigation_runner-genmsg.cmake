@@ -19,7 +19,7 @@ add_custom_target(navigation_runner_generate_messages ALL)
 
 get_filename_component(_filename "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeAction.srv" NAME_WE)
 add_custom_target(_navigation_runner_generate_messages_check_deps_${_filename}
-  COMMAND ${CATKIN_ENV} ${PYTHON_EXECUTABLE} ${GENMSG_CHECK_DEPS_SCRIPT} "navigation_runner" "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeAction.srv" "geometry_msgs/Vector3:geometry_msgs/Point"
+  COMMAND ${CATKIN_ENV} ${PYTHON_EXECUTABLE} ${GENMSG_CHECK_DEPS_SCRIPT} "navigation_runner" "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeAction.srv" "geometry_msgs/Point:geometry_msgs/Vector3"
 )
 
 get_filename_component(_filename "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetPolicyInference.srv" NAME_WE)
@@ -29,7 +29,7 @@ add_custom_target(_navigation_runner_generate_messages_check_deps_${_filename}
 
 get_filename_component(_filename "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeActionMap.srv" NAME_WE)
 add_custom_target(_navigation_runner_generate_messages_check_deps_${_filename}
-  COMMAND ${CATKIN_ENV} ${PYTHON_EXECUTABLE} ${GENMSG_CHECK_DEPS_SCRIPT} "navigation_runner" "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeActionMap.srv" "geometry_msgs/Vector3:geometry_msgs/Point"
+  COMMAND ${CATKIN_ENV} ${PYTHON_EXECUTABLE} ${GENMSG_CHECK_DEPS_SCRIPT} "navigation_runner" "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeActionMap.srv" "geometry_msgs/Point:geometry_msgs/Vector3"
 )
 
 #
@@ -43,7 +43,7 @@ add_custom_target(_navigation_runner_generate_messages_check_deps_${_filename}
 _generate_srv_cpp(navigation_runner
   "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeAction.srv"
   "${MSG_I_FLAGS}"
-  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg"
+  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg"
   ${CATKIN_DEVEL_PREFIX}/${gencpp_INSTALL_DIR}/navigation_runner
 )
 _generate_srv_cpp(navigation_runner
@@ -55,7 +55,7 @@ _generate_srv_cpp(navigation_runner
 _generate_srv_cpp(navigation_runner
   "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeActionMap.srv"
   "${MSG_I_FLAGS}"
-  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg"
+  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg"
   ${CATKIN_DEVEL_PREFIX}/${gencpp_INSTALL_DIR}/navigation_runner
 )
 
@@ -92,7 +92,7 @@ list(APPEND ${PROJECT_NAME}_EXPORTED_TARGETS navigation_runner_generate_messages
 _generate_srv_eus(navigation_runner
   "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeAction.srv"
   "${MSG_I_FLAGS}"
-  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg"
+  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg"
   ${CATKIN_DEVEL_PREFIX}/${geneus_INSTALL_DIR}/navigation_runner
 )
 _generate_srv_eus(navigation_runner
@@ -104,7 +104,7 @@ _generate_srv_eus(navigation_runner
 _generate_srv_eus(navigation_runner
   "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeActionMap.srv"
   "${MSG_I_FLAGS}"
-  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg"
+  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg"
   ${CATKIN_DEVEL_PREFIX}/${geneus_INSTALL_DIR}/navigation_runner
 )
 
@@ -141,7 +141,7 @@ list(APPEND ${PROJECT_NAME}_EXPORTED_TARGETS navigation_runner_generate_messages
 _generate_srv_lisp(navigation_runner
   "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeAction.srv"
   "${MSG_I_FLAGS}"
-  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg"
+  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg"
   ${CATKIN_DEVEL_PREFIX}/${genlisp_INSTALL_DIR}/navigation_runner
 )
 _generate_srv_lisp(navigation_runner
@@ -153,7 +153,7 @@ _generate_srv_lisp(navigation_runner
 _generate_srv_lisp(navigation_runner
   "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeActionMap.srv"
   "${MSG_I_FLAGS}"
-  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg"
+  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg"
   ${CATKIN_DEVEL_PREFIX}/${genlisp_INSTALL_DIR}/navigation_runner
 )
 
@@ -190,7 +190,7 @@ list(APPEND ${PROJECT_NAME}_EXPORTED_TARGETS navigation_runner_generate_messages
 _generate_srv_nodejs(navigation_runner
   "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeAction.srv"
   "${MSG_I_FLAGS}"
-  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg"
+  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg"
   ${CATKIN_DEVEL_PREFIX}/${gennodejs_INSTALL_DIR}/navigation_runner
 )
 _generate_srv_nodejs(navigation_runner
@@ -202,7 +202,7 @@ _generate_srv_nodejs(navigation_runner
 _generate_srv_nodejs(navigation_runner
   "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeActionMap.srv"
   "${MSG_I_FLAGS}"
-  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg"
+  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg"
   ${CATKIN_DEVEL_PREFIX}/${gennodejs_INSTALL_DIR}/navigation_runner
 )
 
@@ -239,7 +239,7 @@ list(APPEND ${PROJECT_NAME}_EXPORTED_TARGETS navigation_runner_generate_messages
 _generate_srv_py(navigation_runner
   "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeAction.srv"
   "${MSG_I_FLAGS}"
-  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg"
+  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg"
   ${CATKIN_DEVEL_PREFIX}/${genpy_INSTALL_DIR}/navigation_runner
 )
 _generate_srv_py(navigation_runner
@@ -251,7 +251,7 @@ _generate_srv_py(navigation_runner
 _generate_srv_py(navigation_runner
   "/home/tiko/navrl_ws/src/ros1/navigation_runner/srv/GetSafeActionMap.srv"
   "${MSG_I_FLAGS}"
-  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg"
+  "/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Point.msg;/opt/ros/noetic/share/geometry_msgs/cmake/../msg/Vector3.msg"
   ${CATKIN_DEVEL_PREFIX}/${genpy_INSTALL_DIR}/navigation_runner
 )
 

@@ -51,7 +51,7 @@ algo:
   actor:
     learning_rate: 0.0005
     clip_ratio: 0.1
-    action_limit: 1.5
+    action_limit: 1.0
   critic:
     learning_rate: 0.0005
     clip_ratio: 0.1

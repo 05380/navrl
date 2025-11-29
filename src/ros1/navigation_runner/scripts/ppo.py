@@ -7,9 +7,12 @@ from torchrl.modules import ProbabilisticActor
 from torchrl.envs.transforms import CatTensors
 from utils import ValueNorm, make_mlp, GAE, IndependentBeta, BetaActor, vec_to_world
 
-
+"""
+定义 PPO 模型封装类 PPO，含特征提取、actor、critic、损失与优化器，供导航节点加载推理/训练。
+"""
 
 class PPO(TensorDictModuleBase):
+
     def __init__(self, cfg, observation_spec, action_spec, device):
         super().__init__()
         self.cfg = cfg
@@ -20,7 +23,7 @@ class PPO(TensorDictModuleBase):
         feature_extractor_network = nn.Sequential(
             nn.LazyConv2d(out_channels=4, kernel_size=[5, 3], padding=[2, 1]), nn.ELU(), 
             nn.LazyConv2d(out_channels=16, kernel_size=[5, 3], stride=[2, 1], padding=[2, 1]), nn.ELU(),
-            nn.LazyConv2d(out_channels=16, kernel_size=[5, 3], stride=[2, 2], padding=[2, 1]), nn.ELU(),
+            nn.LazyConv2d(out_channels=16, kernel_size=[5, 3], stride=[2, 2], padding=[2, 1]), nn.ELU(),#三层卷积
             Rearrange("n c w h -> n (c w h)"),
             nn.LazyLinear(128), nn.LayerNorm(128),
         ).to(self.device)
@@ -31,7 +34,7 @@ class PPO(TensorDictModuleBase):
             make_mlp([128, 64])
         ).to(self.device)
 
-        # Feature extractor
+        # feature_extractor 串联
         self.feature_extractor = TensorDictSequential(
             TensorDictModule(feature_extractor_network, [("agents", "observation", "lidar")], ["_cnn_feature"]),
             TensorDictModule(dynamic_obstacle_network, [("agents", "observation", "dynamic_obstacle")], ["_dynamic_obstacle_feature"]),
@@ -44,7 +47,7 @@ class PPO(TensorDictModuleBase):
         self.actor = ProbabilisticActor(
             TensorDictModule(BetaActor(self.action_dim), ["_feature"], ["alpha", "beta"]),
             in_keys=["alpha", "beta"],
-            out_keys=[("agents", "action_normalized")], 
+            out_keys=[("agents", "action_normalized")], #输出归一化动作
             distribution_class=IndependentBeta,
             return_log_prob=True
         ).to(self.device)
@@ -53,7 +56,7 @@ class PPO(TensorDictModuleBase):
         self.critic = TensorDictModule(
             nn.LazyLinear(1), ["_feature"], ["state_value"] 
         ).to(self.device)
-        self.value_norm = ValueNorm(1).to(self.device)
+        self.value_norm = ValueNorm(1).to(self.device)#价值归一化
 
         # Loss related
         self.gae = GAE(0.99, 0.95) # generalized adavantage esitmation

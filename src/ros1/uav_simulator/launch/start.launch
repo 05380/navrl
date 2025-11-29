@@ -1,3 +1,6 @@
+<!--启动仿真环境——
+打开 Gazebo + 加载指定 world + 生成四旋翼模型 + 
+配好基础话题/TF，让后面的导航、感知、安全节点在这个环境里工作。-->
 <launch>
   <arg name="paused" value="false"/>
   <arg name="verbose" value="false"/>
@@ -5,12 +8,12 @@
   <arg name="debug" value="false" />
 
   
-  <arg name="world_name" value="$(find uav_simulator)/worlds/generated_env/generated_env_static.world" />
-  <!-- <arg name="world_name" value="$(find uav_simulator)/worlds/generated_env/generated_env_dynamic.world" /> -->
+  <!--<arg name="world_name" value="$(find uav_simulator)/worlds/generated_env/generated_env_static.world" />-->
+  <arg name="world_name" value="$(find uav_simulator)/worlds/generated_env/generated_env_dynamic.world" />
   <!-- <arg name="world_name" value="$(find uav_simulator)/worlds/generated_env/generated_env_initial.world" /> -->
 
   
-  <!-- launch the custom world -->
+  <!-- 启动 Gazebo 并加载世界launch the custom world -->
   <include file="$(find gazebo_ros)/launch/empty_world.launch" >
         <arg name="paused" value="$(arg paused)"/>
         <arg name="world_name" value="$(arg world_name)"/>
@@ -20,23 +23,24 @@
   </include>
 
 
-   <!-- send robot urdf to param server -->
+   <!-- 加载无人机模型到参数服务器，读取 quadcopter.urdf 文件内容，存入 ROS 参数 robot_description -->
   <param name="robot_description" command="cat '$(find uav_simulator)/urdf/quadcopter.urdf'" />
-
   <!-- push robot_description to factory and spawn robot in gazebo at the origin, change x,y,z arguments to spawn in a different position -->
-  <!-- <node name="spawn_gazebo_model" pkg="gazebo_ros" type="spawn_model" args="-urdf -param robot_description -model quadcopter -x 0 -y 0 -z 0.1" respawn="false" /> -->
+  <!-- <node name="spawn_gazebo_model" pkg="gazebo_ros" type="spawn_model" args="-urdf -param robot_description -model quadcopter -x 0 -y 0 -z 0.1" respawn="false" /> 无人机初始位置设置为（0，0，0.1），无初始偏航角 -->
 
+  <!--对仿真生成的“真值”话题降频（从高频 raw → 30Hz），减少计算与通信负担。-->
   <node pkg="topic_tools" type="throttle" name="gt_pose_throttle" args="messages /CERLAB/quadcopter/pose_raw 30 /CERLAB/quadcopter/pose"/>
   <node pkg="topic_tools" type="throttle" name="gt_vel_throttle" args="messages /CERLAB/quadcopter/vel_raw 30 /CERLAB/quadcopter/vel"/>
   <node pkg="topic_tools" type="throttle" name="gt_acc_throttle" args="messages /CERLAB/quadcopter/acc_raw 30 /CERLAB/quadcopter/acc"/>
   <node pkg="topic_tools" type="throttle" name="gt_odom_throttle" args="messages /CERLAB/quadcopter/odom_raw 30 /CERLAB/quadcopter/odom"/>
   <node name="spawn_gazebo_model" pkg="gazebo_ros" type="spawn_model" args="-urdf -param robot_description -model quadcopter -x -15.0 -y 0.0 -z 0.1 -Y 0.0" respawn="false" />
 
-  <!-- TF -->
+  <!-- TF 设置，在 setupTF.launch 中用该位姿话题，发布 TF 变换（例如 world → 机体坐标系）。让其他节点统一通过 TF 获取无人机的位置和姿态。 -->
   <include file="$(find uav_simulator)/launch/setupTF.launch" >
     <arg name="pose_topic" value="/CERLAB/quadcopter/pose" />
   </include>
 
+  <!--  开启一个接收键盘输入的节点，用按键来控制无人机运动（具体按键逻辑在对应 cpp 程序中）。-->
   <node name="keyboard_control" pkg="uav_simulator" type="keyboard_control" />
 
   <!-- <include file="$(find uav_simulator)/launch/rviz.launch"></include> -->

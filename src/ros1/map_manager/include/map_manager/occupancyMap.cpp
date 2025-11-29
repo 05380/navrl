@@ -523,7 +523,7 @@ namespace mapManager{
 		// publish service
 		this->collisionCheckServer_ = this->nh_.advertiseService(this->ns_ + "/check_pos_collision", &occMap::checkCollision, this);
 		this->raycastServer_ = this->nh_.advertiseService(this->ns_ + "/raycast", &occMap::getRayCast, this);
-		this->staticObstacleServer_ = this->nh_.advertiseService(this->ns_ + "/get_static_obstacles", &occMap::getStaticObstacles, this);
+		this->staticObstacleServer_ = this->nh_.advertiseService(this->ns_ + "/get_static_obstacles", &occMap::getStaticObstacles, this);//发布service
 
 		// visualization callback
 		this->visTimer_ = this->nh_.createTimer(ros::Duration(0.1), &occMap::visCB, this);
@@ -590,6 +590,7 @@ namespace mapManager{
 		return true;
 	}
 
+	// get static obstacles服务实现函数
 	bool occMap::getStaticObstacles(map_manager::GetStaticObstacles::Request& req, map_manager::GetStaticObstacles::Response& res){
 		for (int i=0; i<int(this->refinedBBoxVertices_.size()); ++i){
 			bboxVertex staticObstacle = this->refinedBBoxVertices_[i];

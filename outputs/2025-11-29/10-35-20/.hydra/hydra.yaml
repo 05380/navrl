@@ -140,7 +140,7 @@ hydra:
     - path: ''
       schema: structured
       provider: schema
-    output_dir: /home/tiko/navrl_ws/outputs/2025-11-25/16-10-08
+    output_dir: /home/tiko/navrl_ws/outputs/2025-11-29/10-35-20
     choices:
       hydra/env: default
       hydra/callbacks: null
