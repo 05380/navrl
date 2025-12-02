@@ -1,13 +1,14 @@
 <!--启动仿真环境——
 打开 Gazebo + 加载指定 world + 生成四旋翼模型 + 
 配好基础话题/TF，让后面的导航、感知、安全节点在这个环境里工作。-->
+
 <launch>
   <arg name="paused" value="false"/>
   <arg name="verbose" value="false"/>
   <arg name="use_sim_time" value="true"/>
   <arg name="debug" value="false" />
 
-  
+  <!--根据需要启动相应地图-->
   <!--<arg name="world_name" value="$(find uav_simulator)/worlds/generated_env/generated_env_static.world" />-->
   <arg name="world_name" value="$(find uav_simulator)/worlds/generated_env/generated_env_dynamic.world" />
   <!-- <arg name="world_name" value="$(find uav_simulator)/worlds/generated_env/generated_env_initial.world" /> -->

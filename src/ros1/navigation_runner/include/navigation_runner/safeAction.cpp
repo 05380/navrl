@@ -2,6 +2,16 @@
 #include <navigation_runner/safeAction.h>
 
 namespace safeAction {
+	/*
+	初始化安全动作代理，包括：
+	参数命名空间设置
+	参数初始化
+	服务服务器创建：
+	rl_navigation/get_safe_action - 获取安全动作服务
+	rl_navigation/get_safe_action_map - 获取安全动作地图服务
+	可视化发布器和定时器创建
+	
+	*/
 	Agent::Agent(const ros::NodeHandle& nh) : nh_(nh){
 		this->ns_ = "safe_action";
 		this->hint_ = "[SafeAction]";
@@ -15,6 +25,13 @@ namespace safeAction {
 		this->dynObsVisTimer_ = this->nh_.createTimer(ros::Duration(0.05), &Agent::dynObsVisCallback, this);
 	}
 
+	/*从参数服务器读取关键配置参数：
+
+	time_horizon: 预测时间范围（默认3.0秒）
+	time_step: 时间步长（默认0.05秒）
+	min_height/max_height: 飞行高度限制
+	safety_distance: 安全距离
+	use_safety_in_static: 是否在静态障碍物环境中使用安全机制*/
 	void Agent::initParam(){
 		// prediction horizon
 		if (not this->nh_.getParam(this->ns_ + "/time_horizon", this->timeHorizon_)){
@@ -71,6 +88,13 @@ namespace safeAction {
 		}
 	}
 
+	/*
+	实现Optimal Reciprocal Collision Avoidance算法：
+
+	计算代理与障碍物之间的相对位置和速度
+	构建避免碰撞的约束平面
+	处理碰撞和非碰撞情况
+	支持圆形和锥形速度障碍物模型*/
 	Plane Agent::getORCAPlane(const Vector3& agentPos, const Vector3& agentVel, double agentRadius,
 						      const Vector3& obsPos, const Vector3& obsVel, double obsRadius, bool useCircle, bool& inVO){
 		const double invTimeHorizon = 1.0 / this->timeHorizon_;
@@ -157,6 +181,10 @@ namespace safeAction {
 		return plane;
 	}
 
+	/*
+	处理预知的地图静态障碍物和动态障碍物
+	更精确的障碍物几何表示
+	支持旋转的矩形障碍物分解为球形集合*/
 	bool Agent::getSafeActionMap(navigation_runner::GetSafeActionMap::Request& req,
 								 navigation_runner::GetSafeActionMap::Response& res){
 		this->staticObsPosVec_.clear();
@@ -279,7 +307,12 @@ namespace safeAction {
 
 		return true;
 	}
-
+	/*
+	处理动态障碍物（已知位置和速度）
+	使用激光点云数据聚类静态障碍物
+	应用DBSCAN聚类算法识别静态障碍物群
+	生成安全的避障速度指令
+	*/
 	bool Agent::getSafeAction(navigation_runner::GetSafeAction::Request& req, 
 						      navigation_runner::GetSafeAction::Response& res){
 		this->staticObsPosVec_.clear();

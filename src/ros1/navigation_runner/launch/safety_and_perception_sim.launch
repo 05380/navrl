@@ -12,11 +12,9 @@
     <arg name="use_real_detector" default="false" /><!--是否用真实检测器（YOLO+detector_node），否则用 fake_detector。-->
     <arg name="use_safety_shield" default="true" />
     <arg name="rviz" default="true" />
-    
-    <!-- PX4 -->
-    <param name="rl/use_px4" value="$(arg use_px4)" />
+    <param name="rl/use_px4" value="$(arg use_px4)" /><!-- PX4 -->
 
-    <!--mapping地图管理配置 
+<!--mapping地图管理配置 
     根据 use_prebuilt_map 和 use_px4 
     选择不同的 occupancy_map 参数 YAML：
     启动地图节点：
@@ -39,7 +37,7 @@
     </group>
 	<node pkg="map_manager" type="occupancy_map_node" name="occupancy_map_node" output="screen" />
 
-    <!-- detection 检测系统配置-->
+<!-- detection 检测系统配置-->
     <group if="$(arg use_real_detector)">
         <group if="$(arg use_px4)">
             <rosparam file="$(find navigation_runner)/cfg/detection/sim/real_detector_px4.yaml" ns="/onboard_detector" />
@@ -62,7 +60,7 @@
         <node pkg="onboard_detector" type="fake_detector_node" name="fake_detector_node" output="screen" />
     </group>
 
-    <!-- safety 安全系统配置-->
+<!-- safety 安全系统配置-->
     <group if="$(arg use_safety_shield)">
  	    <include file="$(find navigation_runner)/launch/safety_shield.launch" />
     </group>
