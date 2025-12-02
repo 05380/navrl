@@ -8,7 +8,7 @@ from torchrl.envs.transforms import CatTensors
 from utils import ValueNorm, make_mlp, GAE, IndependentBeta, BetaActor, vec_to_world
 
 """
-定义 PPO 模型封装类 PPO，含特征提取、actor、critic、损失与优化器，供导航节点加载推理/训练。
+定义 PPO 模型封装类 PPO，含特征提取、actor、critic、损失与优化器，供导航节点policy_server.py加载推理/训练。
 """
 
 class PPO(TensorDictModuleBase):

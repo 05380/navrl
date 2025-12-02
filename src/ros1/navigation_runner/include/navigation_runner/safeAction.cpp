@@ -1,7 +1,12 @@
 
 #include <navigation_runner/safeAction.h>
-
-namespace safeAction {
+/*
+从 ROS 参数服务器读取安全相关参数；
+将动态/静态障碍物转成 ORCA 速度约束平面；
+用线性规划在这些约束内求一个尽量接近期望速度的安全速度；
+通过两个 ROS 服务对外提供“安全动作”；
+周期性发布静态/动态障碍物的可视化 Marker。 
+*/
 	Agent::Agent(const ros::NodeHandle& nh) : nh_(nh){
 		this->ns_ = "safe_action";
 		this->hint_ = "[SafeAction]";
@@ -71,6 +76,7 @@ namespace safeAction {
 		}
 	}
 
+	//ORCA 约束平面计算
 	Plane Agent::getORCAPlane(const Vector3& agentPos, const Vector3& agentVel, double agentRadius,
 						      const Vector3& obsPos, const Vector3& obsVel, double obsRadius, bool useCircle, bool& inVO){
 		const double invTimeHorizon = 1.0 / this->timeHorizon_;
@@ -157,6 +163,7 @@ namespace safeAction {
 		return plane;
 	}
 
+	//获取安全动作地图
 	bool Agent::getSafeActionMap(navigation_runner::GetSafeActionMap::Request& req,
 								 navigation_runner::GetSafeActionMap::Response& res){
 		this->staticObsPosVec_.clear();
@@ -280,6 +287,17 @@ namespace safeAction {
 		return true;
 	}
 
+
+	//获取安全动作
+	/*
+	1、这是 GetSafeAction ROS 服务的回调，实现一个 3D ORCA 安全层。
+	2、输入：当前位置、RL 期望速度、机器人尺寸、动态障碍物、激光点（静态障碍物）等；
+	navigation_runner::GetSafeAction::Request& req 里带着 RL 的期望速度字段：req.rl_velocity
+	3、输出：在所有障碍物和高度约束下，求得一个“尽量接近期望速度preferredVel”的安全速度 safeVel，
+	写入 res.safe_action。
+
+
+	*/
 	bool Agent::getSafeAction(navigation_runner::GetSafeAction::Request& req, 
 						      navigation_runner::GetSafeAction::Response& res){
 		this->staticObsPosVec_.clear();
@@ -295,7 +313,7 @@ namespace safeAction {
 		// // Load velocity
 		// Vector3 agentVel = Vector3(req.agent_velocity.x, req.agent_velocity.y, req.agent_velocity.z);
 
-		// Load prefered velocity
+		//RL策略输出速度
 		Vector3 preferredVel = Vector3(req.rl_velocity.x, req.rl_velocity.y, req.rl_velocity.z);
 
 		// Agent size
@@ -307,9 +325,13 @@ namespace safeAction {
 		// maximum velocity
 		double maxVel = req.max_velocity;
 
-		// ORCA planes
+		// ORCA planes准备ORCA半平面容器
 		std::vector<Plane> orcaPlane;
+
+
 		bool needSolve = false;
+
+
 		// dynamic obstacles
 		for (int i=0; i<int(req.obs_position.size()); ++i){
 			double xySize = std::max(req.obs_size[i].x, req.obs_size[i].y);
@@ -323,12 +345,13 @@ namespace safeAction {
 				double obsRadius = std::sqrt(pow(req.obs_size[i].x, 2) + pow(req.obs_size[i].y, 2)) / 2.;
 				const bool useCircle = true;
 				bool inVO;
+				//调用gettORCAPlane（）得到一个动态障碍物对应的ORCA越是平面plane
 				Plane plane = this->getORCAPlane(agentPos, preferredVel, agentRadius+this->safetyDist_, obsPos, obsVel, obsRadius, useCircle, inVO);
 				orcaPlane.push_back(plane);
 
 				this->dynObsPosVec_.push_back(obsPos);
 				this->dynObsSizeVec_.push_back(obsRadius);
-				if (inVO){
+				if (inVO){//若 inVO == true，说明当前期望速度在 VO 里，设置 needSolve = true。
 					needSolve = true;
 				}
 			}
@@ -349,6 +372,7 @@ namespace safeAction {
 
 		// clustering static obstacles
 		std::vector<std::vector<Eigen::Vector3d>> clusters;
+		//把这些静态点聚类，每个 clusters[i] 是一团连在一起的障碍物点。
 		this->getClusters(staticPoints, clusters);
 		for (int i=0; i<int(clusters.size()); ++i){
 			double minX = clusters[i][0](0);
@@ -377,7 +401,7 @@ namespace safeAction {
 					maxZ = clusters[i][n](2);
 				}
 			}
-
+			//利用上面算出该簇在 x/y/z 上的最小值/最大值（AABB 包围盒），得到盒中心 center；
 			Eigen::Vector3d center ((minX + maxX)/2., (minY + maxY)/2., (minZ + maxZ)/2.);
 
 			// calculate radius
@@ -427,10 +451,14 @@ namespace safeAction {
 			maxHeightPlane.point = Vector3(0, 0, 0);
 			orcaPlane.push_back(maxHeightPlane);
 		}
-
+		//ORCA 线性规划求解安全速度，如果 needSolve == false，说明期望速度已经不在任何 VO 内，保持 safeVel = preferredVel。
 		if (needSolve){
+			//调用linearProgram3（），在所有平面约束内，找离 preferredVel 最近、且模长不超过 maxVel 的速度；
 			const size_t planeFail = linearProgram3(orcaPlane, maxVel, preferredVel, false, safeVel);
-
+					/*如果 linearProgram3 返回
+					 planeFail < orcaPlane.size()，
+					说明有某个平面未满足：
+					 继续调用*/
 			if (planeFail < orcaPlane.size()){
 				linearProgram4(orcaPlane, planeFail, maxVel, safeVel);
 			}
@@ -442,6 +470,7 @@ namespace safeAction {
 		return true;
 	}
 
+	//聚类与可视化辅助函数
 	void Agent::getClusters(const std::vector<Eigen::Vector3d>& points, std::vector<std::vector<Eigen::Vector3d>>& clusters){
 		if (points.size() != 0){
 			std::vector<onboardDetector::Point> pointsDB;

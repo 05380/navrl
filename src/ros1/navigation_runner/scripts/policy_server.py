@@ -39,10 +39,10 @@ class policy_server:
                 "action": UnboundedContinuousTensorSpec((action_dim,), device=self.cfg.device), 
             })
         }).expand(1, action_dim).to(self.cfg.device)
-
+        #实例化 PPO 策略
         policy = PPO(self.cfg.algo, observation_spec, action_spec, self.cfg.device)
 
-
+        #从硬编码 120obs-21000.pt 加载权重。
         checkpoint = "/home/zhefan/rl_ws/src/nav-ros/navigation_runner/scripts/ckpts/120obs-21000.pt"
 
         policy.load_state_dict(torch.load(checkpoint))
