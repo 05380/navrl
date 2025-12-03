@@ -667,7 +667,89 @@
                                 <waypoint>-4.447425874105361 1.735686929163375 1.5587659279810167</waypoint>
                                 </path>
                             </plugin>
+// ... existing code ...
                             </model> 
+                            <model name='high_wall'>
+                                <static>true</static>
+                                <pose>0 0 2.5 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                                <link name='link'>
+                                    <visual name='visual'>
+                                        <geometry>
+                                            <box>
+                                                <size>0.5 10 5</size> <!-- Width, Depth, Height -->
+                                            </box>
+                                        </geometry>
+                                        <material>
+                                            <ambient>0.5 0.5 0.5 1</ambient> <!-- Gray color -->
+                                            <diffuse>0.5 0.5 0.5 1</diffuse> <!-- Gray color -->
+                                            <specular>0.3 0.3 0.3 1</specular> <!-- Specular highlight -->
+                                        </material>
+                                    </visual>
+                                    <collision name='collision'>
+                                        <geometry>
+                                            <box>
+                                                <size>0.5 10 5</size>
+                                            </box>
+                                        </geometry>
+                                    </collision>
+                                </link>
+                            </model>
+                            
+                            <!-- New wall perpendicular to the existing wall along X-axis, positioned at one end -->
+                            <model name='high_wall_side_1'>
+                                <static>true</static>
+                                <pose>0 5 2.5 0 0 1.5708</pose> <!-- Rotated 90 degrees around Z-axis -->
+                                <link name='link'>
+                                    <visual name='visual'>
+                                        <geometry>
+                                            <box>
+                                                <size>0.5 10 5</size> <!-- Same dimensions as original wall -->
+                                            </box>
+                                        </geometry>
+                                        <material>
+                                            <ambient>0.5 0.5 0.5 1</ambient> <!-- Gray color -->
+                                            <diffuse>0.5 0.5 0.5 1</diffuse> <!-- Gray color -->
+                                            <specular>0.3 0.3 0.3 1</specular> <!-- Specular highlight -->
+                                        </material>
+                                    </visual>
+                                    <collision name='collision'>
+                                        <geometry>
+                                            <box>
+                                                <size>0.5 10 5</size>
+                                            </box>
+                                        </geometry>
+                                    </collision>
+                                </link>
+                            </model>
+                            
+                            <!-- New wall perpendicular to the existing wall along X-axis, positioned at the other end -->
+                            <model name='high_wall_side_2'>
+                                <static>true</static>
+                                <pose>0 -5 2.5 0 0 1.5708</pose> <!-- Rotated 90 degrees around Z-axis -->
+                                <link name='link'>
+                                    <visual name='visual'>
+                                        <geometry>
+                                            <box>
+                                                <size>0.5 10 5</size> <!-- Same dimensions as original wall -->
+                                            </box>
+                                        </geometry>
+                                        <material>
+                                            <ambient>0.5 0.5 0.5 1</ambient> <!-- Gray color -->
+                                            <diffuse>0.5 0.5 0.5 1</diffuse> <!-- Gray color -->
+                                            <specular>0.3 0.3 0.3 1</specular> <!-- Specular highlight -->
+                                        </material>
+                                    </visual>
+                                    <collision name='collision'>
+                                        <geometry>
+                                            <box>
+                                                <size>0.5 10 5</size>
+                                            </box>
+                                        </geometry>
+                                    </collision>
+                                </link>
+                            </model>
+                            
+// ... existing code ...
                             
             </world>
             </sdf>
