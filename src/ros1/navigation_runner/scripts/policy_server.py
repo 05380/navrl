@@ -9,7 +9,12 @@ import numpy as np
 from navigation_runner.srv import GetPolicyInference
 from torchrl.envs.utils import ExplorationType, set_exploration_type
 from tensordict.tensordict import TensorDict
-
+"""
+1、用途：启动 ROS 服务节点 rl_navigation/GetPolicyInference，
+    加载 PPO 策略模型，接收观测并输出动作。
+2、主要依赖：rospy（ROS1）、hydra（配置）、torch/torchrl 与 
+    tensordict（模型与张量封装）、自定义服务 GetPolicyInference。
+"""
 class policy_server:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -22,6 +27,7 @@ class policy_server:
     def init_model(self):
         observation_dim = 8
         num_dim_each_dyn_obs_state = 10
+        #观测空间
         observation_spec = CompositeSpec({
             "agents": CompositeSpec({
                 "observation": CompositeSpec({
@@ -34,6 +40,7 @@ class policy_server:
         }, shape=[1], device=self.cfg.device)
 
         action_dim = 3
+        #动作空间
         action_spec = CompositeSpec({
             "agents": CompositeSpec({
                 "action": UnboundedContinuousTensorSpec((action_dim,), device=self.cfg.device), 
