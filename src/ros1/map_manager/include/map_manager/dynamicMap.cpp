@@ -3,7 +3,7 @@
 	--------------------------------------
 	function definition of dynamic map、
 	goofdddddd
-	0003
+	00030000
 */
 
 #include <ros/ros.h>
