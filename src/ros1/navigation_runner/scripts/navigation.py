@@ -206,12 +206,11 @@ class Navigation:
     调用地图节点的 occupancy_map/raycast 服务，从当前位置 pos 出发
     按给定起始水平角 start_angle 做 3D 射线扫描，得到一圈激光“打到的点”列表，
     并缓存原始点数组到 self.laser_points_msg。
-
     输入：当前位置 pos 和起始角度 start_angle。
-   输出：raypoints: List[List[float]]，每个元素是 [x,y,z]，表示某条射线的击中点坐标（或最大量程端点）。
+    输出：raypoints: List[List[float]]，每个元素是 [x,y,z]，表示某条射线的击中点坐标（或最大量程端点）。
     """
     def get_raycast(self, pos: np.array , start_angle: float):
-        raypoints = []
+        raypoints = []#初始化返回点集
         try:
             raycast = rospy.ServiceProxy("occupancy_map/raycast", RayCast)#创建指向地图节点 occupancyMap.cpp 中 getRayCast 的客户端；
             pos_msg = Point()
@@ -219,13 +218,13 @@ class Navigation:
             pos_msg.y = pos[1]
             pos_msg.z = pos[2]
 
-            response = raycast(pos_msg,
-                               start_angle,
-                               self.cfg.sensor.lidar_range, 
-                               self.cfg.sensor.lidar_vfov[0], 
+            response = raycast(pos_msg,#当前位置 pos
+                               start_angle,#起始水平角 start_angle
+                               self.cfg.sensor.lidar_range, #激光雷达范围
+                               self.cfg.sensor.lidar_vfov[0], #垂直视场上下限 self.cfg.sensor.lidar_vfov[0]
                                self.cfg.sensor.lidar_vfov[1], 
-                               self.cfg.sensor.lidar_vbeams, 
-                               self.cfg.sensor.lidar_hres
+                               self.cfg.sensor.lidar_vbeams, #垂直束数
+                               self.cfg.sensor.lidar_hres#水平角分辨率 self.cfg.sensor.lidar_hres
                                )
             
             num_points = int(len(response.points)/3)#response.points 是一个扁平的 float 数组 [x0,y0,z0,x1,y1,z1,...]。每 3 个数是一点，所以总点数是 len(points)/3。
@@ -251,8 +250,8 @@ class Navigation:
             pos_msg.z = pos[2]
 
             get_obstacle = rospy.ServiceProxy("onboard_detector/get_dynamic_obstacles", GetDynamicObstacles)
-            response = get_obstacle(pos_msg, distance_range)#请求当前位置与半径
-
+            response = get_obstacle(pos_msg, distance_range)#请求当前位置与半径distance_range内的动态障碍，返回的障碍物数量可能小于 self.cfg.algo.feature_extractor.dyn_obs_num
+            
             total_obs_num = len(response.position)#实际返回的障碍物数量
             #为每个障碍物填充到固定长度的张量：
             for i in range(self.cfg.algo.feature_extractor.dyn_obs_num):

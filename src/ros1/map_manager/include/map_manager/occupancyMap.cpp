@@ -29,10 +29,17 @@ namespace mapManager{
 		this->registerCallback();
 	}
 
+	/**
+ * @brief 初始化占用地图参数，从ROS参数服务器获取各种配置参数
+ *        包括传感器输入模式、定位模式、话题名称、机器人尺寸、相机内参、
+ *        深度图像参数、变换矩阵、射线投射参数、概率参数、地图参数等
+ * @param 无
+ * @return 无
+ */
 	void occMap::initParam(){
 		// sensor input mode
 		if (not this->nh_.getParam(this->ns_ + "/sensor_input_mode", this->sensorInputMode_)){
-			this->sensorInputMode_ = 0;
+			this->sensorInputMode_ = 0;//传感器输入模式（深度图/点云）
 			cout << this->hint_ << ": No sensor input mode option. Use default: depth image" << endl;
 		}
 		else{
@@ -41,7 +48,7 @@ namespace mapManager{
 
 		// localization mode
 		if (not this->nh_.getParam(this->ns_ + "/localization_mode", this->localizationMode_)){
-			this->localizationMode_ = 0;
+			this->localizationMode_ = 0;//定位模式（位姿/里程计）
 			cout << this->hint_ << ": No localization mode option. Use default: pose" << endl;
 		}
 		else{
@@ -192,7 +199,7 @@ namespace mapManager{
 			// cout << this->body2Cam_ << endl;
 		}
 
-		// Raycast max length
+		// 射线投射最大长度
 		if (not this->nh_.getParam(this->ns_ + "/raycast_max_length", this->raycastMaxLength_)){
 			this->raycastMaxLength_ = 5.0;
 			cout << this->hint_ << ": No raycast max length. Use default: 5.0." << endl;
@@ -257,7 +264,7 @@ namespace mapManager{
 		this->pOccLog_ = this->logit(pOcc);
 
 
-		// map resolution
+		// 地图分辨率
 		if (not this->nh_.getParam(this->ns_ + "/map_resolution", this->mapRes_)){
 			this->mapRes_ = 0.1;
 			cout << this->hint_ << ": No map resolution. Use default: 0.1." << endl;
@@ -393,6 +400,13 @@ namespace mapManager{
 		}
 	}
 
+	/*
+	 * @brief 初始化预构建地图
+	 *        从指定的PCD文件加载点云数据，并更新占用信息
+	 *        包括地图范围、占用概率、膨胀占用标志等
+	 * @param 无
+	 * @return 无
+	 */
 	void occMap::initPrebuiltMap(){
 		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
 
@@ -469,6 +483,17 @@ namespace mapManager{
 		}
 	}
 
+	/**
+	 * @brief 注册回调函数
+	 * 根据配置订阅深度图或点云，并与 Pose/Odom 同步。
+	 * 设置定时器：占据更新、膨胀、静态聚类，以及发布服务。
+	 * 注册服务：
+occupancy_map/check_pos_collision → checkCollision
+occupancy_map/raycast → getRayCast
+occupancy_map/get_static_obstacles → getStaticObstacles
+	 * @param 无
+	 * @return 无
+	 */
 	void occMap::registerCallback(){
 		if (this->sensorInputMode_ == 0){
 			// depth pose callback
@@ -556,6 +581,17 @@ namespace mapManager{
 		return true;
 	}
 
+	/*
+	* @brief 获取射线检测结果
+	 * @details 获取射线检测结果
+	* @param req 请求参数
+	* @param res 响应参数
+	* @return 无
+
+	occupancy_map/raycast 的实现。
+	根据水平/垂直分辨率、视场角、起始角和距离做射线采样，
+	返回每束射线的终点（命中或最大距离）。
+	*/
 	bool occMap::getRayCast(map_manager::RayCast::Request& req, map_manager::RayCast::Response& res){
 		double hres = req.hres * M_PI/180.0;
 		int numHbeams = int(360/req.hres);
@@ -590,13 +626,20 @@ namespace mapManager{
 		return true;
 	}
 
-	// get static obstacles服务实现函数
+	/*
+	get static obstacles服务实现函数
+	作用: 将内部存储的静态障碍物数据转换为 ROS 服务响应格式
+	服务类型: map_manager::GetStaticObstacles
+	返回: 将静态障碍物的位置、尺寸和角度信息返回给调用者
+	*/ 
 	bool occMap::getStaticObstacles(map_manager::GetStaticObstacles::Request& req, map_manager::GetStaticObstacles::Response& res){
+		//遍历所有已识别的静态障碍物
+		//refinedBBoxVertices_ 是静态障碍物聚类后得到的包围盒集合（每个 bboxVertex 表示一个障碍物）。
 		for (int i=0; i<int(this->refinedBBoxVertices_.size()); ++i){
 			bboxVertex staticObstacle = this->refinedBBoxVertices_[i];
 			
-			geometry_msgs::Vector3 pos;
-			geometry_msgs::Vector3 size;
+			geometry_msgs::Vector3 pos;//位置向量
+			geometry_msgs::Vector3 size;//尺寸
 			
 			pos.x = staticObstacle.centroid(0);
 			pos.y = staticObstacle.centroid(1);
@@ -711,6 +754,26 @@ namespace mapManager{
 		}
 	}
 
+	/*
+	* 函数功能：更新地图
+	* @param event 定时器事件
+	* @return 无
+	* @details 根据传感器输入模式（深度图或点云）更新占用地图。
+
+	*          如果传感器输入模式为0，则从深度图中投影3D点；
+	*          如果为1，则直接获取点云数据。
+	*          然后进行射线投射更新占用信息。
+	*          如果需要清理局部地图，则调用清理函数。
+	*          最后调用动态障碍物检测服务，更新自由区域。
+	*          更新完成后，设置占用更新标志为false，并设置地图膨胀标志为true。
+	*          记录更新耗时。
+
+	1、从深度图/点云生成 3D 点（projectDepthImage / getPointcloud）
+	2、raycastUpdate 更新占据信息
+	3、cleanLocalMap 清理局部外区域
+	4、若有动态障碍服务，则标记自由区域（动态物体区域被清空）
+	5、标记需要膨胀
+	*/
 	void occMap::updateOccupancyCB(const ros::TimerEvent& ){
 		if (not this->occNeedUpdate_){
 			return;
@@ -780,16 +843,35 @@ namespace mapManager{
 		}
 	}
 
-	void occMap::staticClusteringCB(const ros::TimerEvent& ){
-		std::vector<Eigen::Vector3d> currCloud;
-		double groudHeight = 0.4;
-		double verticalRange = 2.0;
-		double horizontalRange = 5.0;
-		double cloudRes = 0.2;
-		
-		Eigen::Vector3d pOrigin = this->position_;
+	/*
+	用于从占据栅格里抽取局部“膨胀占据点”，做聚类并生成静态障碍物包围盒
+	它在机器人周围 5m 范围内扫描膨胀地图体素，构造“静态障碍点云”，再聚类成障碍物包围盒。
+	识别和提取静态障碍物的边界框信息。
 
-		// find four vextex of the bounding boxes
+	. 特征提取
+	为每个聚类生成**边界框（Bounding Box）**作为障碍物特征
+	提取的关键特征包括：
+	位置：边界框中心点（centroid）
+	尺寸：边界框长宽高（dimension）
+	方向：边界框旋转角度（angle）
+
+	. 特征存储
+	将提取的特征保存到 refinedBBoxVertices_ 中供后续使用
+	*/
+	void occMap::staticClusteringCB(const ros::TimerEvent& ){
+		// 1. 定义参数和变量
+		std::vector<Eigen::Vector3d> currCloud;
+		double groudHeight = 0.4;//地面高度起点
+		double verticalRange = 2.0;//向上范围
+		double horizontalRange = 5.0;//水平半径
+		double cloudRes = 0.2;//采样分辨率
+		 // 2. 获取当前机器人位置
+		Eigen::Vector3d pOrigin = this->position_;//取当前机器人位置（地图坐标）
+
+		// 3. 计算采样区域边界
+		// x/y轴: 以机器人位置为中心，±5米范围内，按0.2米网格对齐
+		// z轴: 从地面高度0.4米到机器人高度+2米，按0.2米网格对齐
+		// 并对齐到 cloudRes 网格。
 		double xStart = floor((pOrigin(0) - horizontalRange)/cloudRes)*cloudRes;
 		double xEnd = ceil((pOrigin(0) + horizontalRange)/cloudRes)*cloudRes;
 		double yStart = floor((pOrigin(1) - horizontalRange)/cloudRes)*cloudRes;
@@ -797,23 +879,25 @@ namespace mapManager{
 		double zStart = groudHeight;
 		double zEnd = ceil((pOrigin(2) + verticalRange)/cloudRes)*cloudRes;
 
+		// 4. 在指定区域内采样占用点，三重循环: 遍历x、y、z轴上的网格点
 		for (double ix=xStart; ix<=xEnd; ix+=cloudRes){
 			for (double iy=yStart; iy<=yEnd; iy+=cloudRes){
 				for (double iz=zStart; iz<=zEnd; iz+=cloudRes){
 					Eigen::Vector3d p (ix, iy, iz);
 					Eigen::Vector3d diff = p - pOrigin;
-					diff(2) = 0.0;
-					if (diff.norm() <= horizontalRange){
-						if (this->isInMap(p) and this->isInflatedOccupied(p)){
-							currCloud.push_back(p);
+					diff(2) = 0.0;// 忽略z轴差异，只考虑水平距离
+					if (diff.norm() <= horizontalRange){// 检查是否在水平圆柱范围内
+						if (this->isInMap(p) and this->isInflatedOccupied(p)){// 检查点是否在地图内且被占用
+							currCloud.push_back(p);// 添加到采样点云
 						}
 					}
 				}
 			}
 		}	
-		this->currCloud_ = currCloud;
-		this->obclustering_->run(currCloud);
-		this->refinedBBoxVertices_ = this->obclustering_->getRefinedBBoxes();
+		//// 5. 执行聚类算法
+		this->currCloud_ = currCloud;//保存当前采样的占用点云
+		this->obclustering_->run(currCloud);//运行聚类算法，将相邻的占用点分组
+		this->refinedBBoxVertices_ = this->obclustering_->getRefinedBBoxes();//getRefinedBBoxes(): 为每个聚类生成精炼的边界框
 	}
 
 	void occMap::projectDepthImage(){
@@ -894,6 +978,11 @@ namespace mapManager{
 		}
 	}
 
+	/**
+	 * @brief: raycasting update
+	 * 对每个投影点做射线更新，沿射线将路径更新为free，
+	 * 终点更新为 hit，并维护局部边界与缓存计数。
+	 */
 	void occMap::raycastUpdate(){
 		if (this->projPointsNum_ == 0){
 			return;
@@ -1114,6 +1203,10 @@ namespace mapManager{
 		}
 	}
 
+	/*
+	在局部范围内从 inflated map 中采样点云并做聚类，
+	生成静态障碍物的包围盒（用于 getStaticObstacles 与可视化）。
+	*/
 	void occMap::inflateLocalMap(){
 		int xmin = this->localBoundMin_(0);
 		int xmax = this->localBoundMax_(0);
