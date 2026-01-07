@@ -1,36 +1,36 @@
 /*
 	FILE: fakeDetector.cpp
 	-----------------------
-	Function definition of fake detector
+	Function definition of fake detector00
 */
 
 #include <onboard_detector/fakeDetector.h>
 
 namespace onboardDetector{
 	fakeDetector::fakeDetector(const ros::NodeHandle& nh) : nh_(nh){
-		// load ros parameter:
+		/*load ros parameter:参数配置*/ 
+		//目标障碍物类型（默认为"person"和"obstacle"）
 		if (not this->nh_.getParam("target_obstacle", this->targetObstacle_)){
 			this->targetObstacle_ = std::vector<std::string> {"person", "obstacle"};
 			cout << "[Fake Detector]: No target obstacle param. Use default value." << endl;
 		}
-
+		//着色距离阈值（5米）
 		if (not this->nh_.getParam("color_distance", this->colorDistance_)){
 			this->colorDistance_ = 5.0; // change color for obstacles in meter distance
 			cout << "[Fake Detector]: No color distance param. Use default value: 5.0m." << endl;
 		}
-
-		if (not this->nh_.getParam("color_distance", this->colorDistance_)){
-			this->colorDistance_ = 5.0; // change color for obstacles in meter distance
-			cout << "[Fake Detector]: No color distance param. Use default value: 5.0m." << endl;
-		}
-
+		//删除了遇上面着色阈值重复的内容
 		std::string odomTopicName;
 		if (not this->nh_.getParam("odom_topic", odomTopicName)){
 			odomTopicName = "/CERLAB/quadcopter/odom";
 			cout << "[Fake Detector]: No odom topic param. Use default: /CERLAB/quadcopter/odom" << endl;
 		}
-
-		// tracking history size
+		// 检测频率（默认0.1Hz）
+		if (not this->nh_.getParam("detection_rate", this->detectionRate_)){
+			this->detectionRate_ = 0.1;
+			cout << "[Fake Detector]: No detection rate param. Use default value: 0.1Hz." << endl;
+		}
+		// 跟踪历史大小（默认5）
         if (not this->nh_.getParam("history_size", this->histSize_)){
             this->histSize_ = 5;
             std::cout << "[Fake Detector]: No tracking history size parameter found. Use default: 5." << std::endl;
@@ -41,46 +41,64 @@ namespace onboardDetector{
 
 
 		this->firstTime_ = true;
-		this->gazeboSub_ = this->nh_.subscribe("/gazebo/model_states", 10, &fakeDetector::stateCB, this);
-		this->odomSub_ = this->nh_.subscribe(odomTopicName, 10, &fakeDetector::odomCB, this);
+		// 订阅器
+		this->gazeboSub_ = this->nh_.subscribe("/gazebo/model_states", 10, &fakeDetector::stateCB, this);//订阅 /gazebo/model_states
+		this->odomSub_ = this->nh_.subscribe(odomTopicName, 10, &fakeDetector::odomCB, this);//订阅里程计话题
 		// this->odomSub_ = this->nh_.subscribe("/mavros/local_position/odom", 10, &fakeDetector::odomCB, this);
-		this->historyTrajPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>("onboard_detector/history_trajectories", 10);
+		// 发布器
+		this->historyTrajPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>("onboard_detector/history_trajectories", 10);//发布历史轨迹
 		this->histTimer_ = this->nh_.createTimer(ros::Duration(0.033), &fakeDetector::histCB, this);
-		this->visPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>("onboard_detector/GT_obstacle_bbox", 10);
+		this->visPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>("onboard_detector/GT_obstacle_bbox", 10);//发布障碍物边界框可视化
 		this->visTimer_ = this->nh_.createTimer(ros::Duration(0.05), &fakeDetector::visCB, this);
 	
-		// get dynamic obstacle service
+		// 提供/注册 onboard_detector/get_dynamic_obstacles 服务
 		this->getDynamicObstacleServer_ = this->nh_.advertiseService("onboard_detector/get_dynamic_obstacles", &fakeDetector::getDynamicObstacles, this);
 	}
 
 
-
+	/*
+	服务回调函数
+	功能：响应动态障碍物查询请求
+	处理流程：
+	解析请求中的机器人位置和检测范围
+	遍历内部障碍物列表，计算距离
+	筛选范围内的障碍物并按距离排序
+	填充响应数据（位置、速度、尺寸）
+	输入: req - 包含查询参数（机器人当前位置和检测范围）
+	输出: res - 包含查询结果（障碍物的位置、速度、尺寸）
+	返回值: true - 表示服务成功执行
+	*/
     bool fakeDetector::getDynamicObstacles(onboard_detector::GetDynamicObstacles::Request& req, 
                                            onboard_detector::GetDynamicObstacles::Response& res) {
-        // Get the current robot position
+        // 步骤1: 获取当前机器人位置
 		Eigen::Vector3d currPos (req.current_position.x, req.current_position.y, req.current_position.z);
 
         // Vector to store obstacles along with their distances
         std::vector<std::pair<double, onboardDetector::box3D>> obstaclesWithDistances;
 
-        // Go through all obstacles and calculate distances
+        // 步骤2: 筛选范围内的障碍物
         for (const onboardDetector::box3D& bbox : this->obstacleMsg_) {
             Eigen::Vector3d obsPos(bbox.x, bbox.y, bbox.z);
+			//计算每个障碍物到机器人的距离
             Eigen::Vector3d diff = currPos - obsPos;
-            diff(2) = 0.;
+            diff(2) = 0.;//说明只计算水平面上的距离（忽略高度差异）
             double distance = diff.norm();            
 			if (distance <= req.range) {
+				//将在检测范围内的障碍物连同距离一起保存
                 obstaclesWithDistances.push_back(std::make_pair(distance, bbox));
             }
         }
 
-        // Sort obstacles by distance in ascending order
+        // 步骤3按距离排序,将障碍物按距离机器人远近进行排序（最近的在前）
         std::sort(obstaclesWithDistances.begin(), obstaclesWithDistances.end(), 
                 [](const std::pair<double, onboardDetector::box3D>& a, const std::pair<double, onboardDetector::box3D>& b) {
                     return a.first < b.first;
                 });
 
-        // Push sorted obstacles into the response
+        /*步骤4: 填充响应数据
+		遍历排序后的障碍物列表
+		将每个障碍物的位置、速度、尺寸信息转换为ROS消息格式
+		逐个添加到响应消息中*/ 
         for (const auto& item : obstaclesWithDistances){
             const onboardDetector::box3D& bbox = item.second;
 
@@ -108,12 +126,21 @@ namespace onboardDetector{
         return true;
     }
 
-
+	/*显示定时器回调函数
+	功能：发布可视化消息*/
 	void fakeDetector::visCB(const ros::TimerEvent&){
 		this->publishHistoryTraj();
 		this->publishVisualization();
 	}
 
+	/*Gazebo状态回调
+	功能：从Gazebo获取真实模型状态
+	处理流程：
+	识别目标障碍物（基于名称匹配）
+	提取位置和速度信息
+	从模型名称解析尺寸信息
+	计算障碍物速度（基于位置差分）
+	*/
 	void fakeDetector::stateCB(const gazebo_msgs::ModelStatesConstPtr& allStates){
 		bool update = false;
 		if (this->firstTime_){
@@ -198,10 +225,15 @@ namespace onboardDetector{
 		// r.sleep();
 	}
 
+	/*里程计回调
+	功能：更新机器人位姿信息
+	*/
 	void fakeDetector::odomCB(const nav_msgs::OdometryConstPtr& odom){
 		this->odom_ = *odom;
 	}
 
+	/*历史轨迹回调
+	功能：维护障碍物历史轨迹*/
 	void fakeDetector::histCB(const ros::TimerEvent&){
 		if (this->obstacleHist_.size() == 0){
 			this->obstacleHist_.resize(this->obstacleMsg_.size());

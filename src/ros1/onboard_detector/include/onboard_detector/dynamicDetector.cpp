@@ -1,7 +1,7 @@
 /*
     FILE: dynamicDetector.cpp
     ---------------------------------
-    function implementation of dynamic osbtacle detector
+    function implementation of dynamic osbtacle detector00
 */
 #include <onboard_detector/dynamicDetector.h>
 

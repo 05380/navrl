@@ -423,60 +423,63 @@ class Navigation:
             # print("[nav-ros]: no safety running!")
             return action_vel_world   
     
-    #输入当前位姿、当前速度、目标位置，输出速度
+    #输入当前位姿、当前速度、目标位置;输出速度
     def get_action(self, pos: torch.Tensor, vel: torch.Tensor, goal: torch.Tensor): # use world velocity
-        #计算相对目标位置与距离
+        """计算相对目标位置与距离"""
         rpos = goal - pos
         distance = rpos.norm(dim=-1, keepdim=True)#三维距离
         distance_2d = rpos[..., :2].norm(dim=-1, keepdim=True)#水平距离
         distance_z = rpos[..., 2].unsqueeze(-1)#高度差
 
+        """无人机自身状态"""
         #构造基于目标方向的局部坐标系
         target_dir_2d = self.target_dir.clone()
         target_dir_2d[2] = 0.
-
         rpos_clipped = rpos / distance.clamp(1e-6) # start to goal direction
         rpos_clipped_g = vec_to_new_frame(rpos_clipped, target_dir_2d).squeeze(0).squeeze(0)
-
         # "relative" velocity
         vel_g = vec_to_new_frame(vel, target_dir_2d).squeeze(0).squeeze(0) # goal velocity
-
         # 将以上的机器人状态进行拼接
         #  drone_state = torch.cat([rpos_clipped, orientation, vel_g], dim=-1).squeeze(1)
         drone_state = torch.cat([rpos_clipped_g, distance_2d, distance_z, vel_g], dim=-1).unsqueeze(0)
 
-        # Lidar States
+        """静态障碍物特征"""
+        # 激光雷达特征（lidar）：距离变换
         lidar_scan = torch.tensor(self.raypoints, device=self.cfg.device)
         lidar_scan = (lidar_scan - pos).norm(dim=-1).clamp_max(self.cfg.sensor.lidar_range).reshape(1, 1, self.lidar_hbeams, self.cfg.sensor.lidar_vbeams)
         lidar_scan = self.cfg.sensor.lidar_range - lidar_scan
 
 
-        # 动态障碍物特征dynamic obstacle states
+        """动态障碍物特征dynamic obstacle states"""
         dynamic_obstacle_pos = self.dynamic_obstacles[0].clone()
         dynamic_obstacle_vel = self.dynamic_obstacles[1].clone()
         dynamic_obstacle_size = self.dynamic_obstacles[2].clone()
+        #根据上面的动态障碍物信息计算障碍物相对机器人位置 closest_dyn_obs_rpos。对无效障碍物（高度为 0）和“太高”（高度>1）的障碍物做屏蔽处理（置 0）
         closest_dyn_obs_rpos = dynamic_obstacle_pos - pos
         closest_dyn_obs_rpos[dynamic_obstacle_size[:, 2] == 0] = 0.
         closest_dyn_obs_rpos[:, 2][dynamic_obstacle_size[:, 2] > 1] = 0.
+        #将相对位置变换到以目标方向为 x 轴的新坐标系closest_dyn_obs_rpos_g，得到在目标方向坐标系下的相对位置。
         closest_dyn_obs_rpos_g = vec_to_new_frame(closest_dyn_obs_rpos.unsqueeze(0), target_dir_2d).squeeze(0)
+        #用上面的相对位置分别计算距离、水平距离、高度差并将相对位置归一化
         closest_dyn_obs_distance = closest_dyn_obs_rpos.norm(dim=-1, keepdim=True)
         closest_dyn_obs_distance_2d = closest_dyn_obs_rpos_g[..., :2].norm(dim=-1, keepdim=True)
         closest_dyn_obs_distance_z = closest_dyn_obs_rpos_g[..., 2].unsqueeze(-1)
         closest_dyn_obs_rpos_gn = closest_dyn_obs_rpos_g / closest_dyn_obs_distance.clamp(1e-6)
-
-
+        #障碍物速度变换到目标方向坐标系
         closest_dyn_obs_vel_g = vec_to_new_frame(dynamic_obstacle_vel.unsqueeze(0), target_dir_2d).squeeze(0)
-        
+        #计算障碍物“占据宽度”特征：取尺寸 x/y 最大值，加机器人直径缓冲，按分辨率 obs_res=0.25 离散化并截断范围；无效障碍物宽度置 0。
         obs_res = 0.25
         closest_dyn_obs_width = torch.max(dynamic_obstacle_size[:, 0], dynamic_obstacle_size[:, 1])
         closest_dyn_obs_width += self.robot_size * 2.
         closest_dyn_obs_width = torch.clamp(torch.ceil(closest_dyn_obs_width / 0.25) - 1, min=0, max=1./obs_res - 1)
         closest_dyn_obs_width[dynamic_obstacle_size[:, 2] == 0] = 0.
+        #高度在 (0,1] 的统一置为 1、高度>1 置 0（可能表示忽略过高物体）、高度=0 仍为 0
         closest_dyn_obs_height = dynamic_obstacle_size[:, 2]
         closest_dyn_obs_height[(closest_dyn_obs_height <= 1) & (closest_dyn_obs_height != 0)] = 1.
         closest_dyn_obs_height[closest_dyn_obs_height > 1] = 0.
         # dyn_obs_states = torch.cat([closest_dyn_obs_rpos_g, closest_dyn_obs_vel_g, \
         #                             closest_dyn_obs_width.unsqueeze(1), closest_dyn_obs_height.unsqueeze(1)], dim=-1).unsqueeze(0).unsqueeze(0)
+        #拼接最终动态障碍物特征，归一化相对位置 + 水平距离 + 垂直距离 + 速度 + 离散宽度 + 高度，并扩展 batch/时间维度：.unsqueeze(0).unsqueeze(0)。
         dyn_obs_states = torch.cat([closest_dyn_obs_rpos_gn, closest_dyn_obs_distance_2d, closest_dyn_obs_distance_z, closest_dyn_obs_vel_g, \
                                     closest_dyn_obs_width.unsqueeze(1), closest_dyn_obs_height.unsqueeze(1)], dim=-1).unsqueeze(0).unsqueeze(0)
         # 组合成tensordict观测 states
@@ -492,7 +495,6 @@ class Navigation:
         })
         #判断是否使用RL
         """
-
         check_obstacle 逻辑：
         看前方 1/4 和后方 1/4 的 Lidar 区域，有无障碍物
         若全部距离都很大（>0.2）就认为没有静态障碍。
