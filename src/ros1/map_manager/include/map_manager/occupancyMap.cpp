@@ -10,8 +10,35 @@ namespace mapManager{
 		this->ns_ = "occupancy_map";
 		this->hint_ = "[OccMap]";
 		this->obclustering_.reset(new obstacleClustering (0.2)); // cloud resolution of 0.2
+
+		if (this->use_lstm_processing_) {
+        this->lstm_processor_ = std::make_unique<LSTMProcessor>();
+    }
+    
+    this->initParam();
 	}
 
+	// 添加新的LSTM处理函数
+	void occMap::processWithLSTM() {
+    if (!this->use_lstm_processing_ || !this->lstm_processor_) return;
+    
+    // 提取当前障碍物特征
+    std::vector<Eigen::Vector3d> current_features;
+    for (const auto& bbox : this->refinedBBoxVertices_) {
+        Eigen::Vector3d feature;
+        feature << bbox.centroid(0), bbox.centroid(1), bbox.centroid(2),
+                 bbox.dimension(0), bbox.dimension(1), bbox.dimension(2), bbox.angle;
+        current_features.push_back(feature);
+    }
+    
+    // 更新特征序列
+    this->lstm_processor_->updateFeatureSequence(current_features);
+    
+    // 处理并获取潜在状态
+    // 注意：实际使用时需要将整个历史序列传递给LSTM
+    std::vector<std::vector<Eigen::Vector3d>> history_seq; // 需要维护完整的序列
+    Eigen::VectorXd latent_state = this->lstm_processor_->process(history_seq);
+}
 	occMap::occMap(const ros::NodeHandle& nh) : nh_(nh){
 		this->ns_ = "occupancy_map";
 		this->hint_ = "[OccMap]";
@@ -54,6 +81,17 @@ namespace mapManager{
 		else{
 			cout << this->hint_ << ": Localizaiton mode: pose (0)/odom (1). Your option: " << this->localizationMode_ << endl;
 		}
+
+
+		if (not this->nh_.getParam(this->ns_ + "/use_lstm_processing", this->use_lstm_processing_)) {
+        this->use_lstm_processing_ = false;
+    	}
+    
+    	if (not this->nh_.getParam(this->ns_ + "/lstm_max_sequence_length", this->max_sequence_length_)) {
+        this->max_sequence_length_ = 10;  // 默认10个时间步
+    	}
+
+
 
 		// depth topic name
 		if (not this->nh_.getParam(this->ns_ + "/depth_image_topic", this->depthTopicName_)){
@@ -898,8 +936,44 @@ occupancy_map/get_static_obstacles → getStaticObstacles
 		this->currCloud_ = currCloud;//保存当前采样的占用点云
 		this->obclustering_->run(currCloud);//运行聚类算法，将相邻的占用点分组
 		this->refinedBBoxVertices_ = this->obclustering_->getRefinedBBoxes();//getRefinedBBoxes(): 为每个聚类生成精炼的边界框
+
+		// 3. 提取特征并准备LSTM输入
+    	if (this->use_lstm_processing_) {
+        this->updateFeatureSequence();
+        this->processWithLSTM();
+    	}
 	}
 
+
+	void occMap::updateFeatureSequence() {
+    if (!this->use_lstm_processing_ || !this->lstm_processor_) return;
+    
+    // 提取当前障碍物特征
+    std::vector<Eigen::Vector3d> current_features;
+    for (const auto& bbox : this->refinedBBoxVertices_) {
+        Eigen::Vector3d feature;
+        feature << bbox.centroid(0), bbox.centroid(1), bbox.centroid(2),
+                 bbox.dimension(0), bbox.dimension(1), bbox.dimension(2), bbox.angle;
+        current_features.push_back(feature);
+    }
+    
+    // 更新LSTM处理器的特征序列
+    this->lstm_processor_->updateFeatureSequence(current_features);
+}
+    Eigen::VectorXd occMap::getLatentState() const {
+    if (this->lstm_processor_) {
+        return this->lstm_processor_->getLatentState();
+    }
+    return Eigen::VectorXd::Zero(32);
+}
+    // 将当前特征添加到历史序列中
+    this->obstacle_history_.push_back(current_features);
+    
+    // 保持序列长度在限制范围内
+    if (this->obstacle_history_.size() > this->max_sequence_length_) {
+        this->obstacle_history_.erase(this->obstacle_history_.begin());
+    }
+}
 	void occMap::projectDepthImage(){
 		this->projPointsNum_ = 0;
 

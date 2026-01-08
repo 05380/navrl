@@ -106,7 +106,12 @@ class Navigation:
     def init_model(self):
         observation_dim = 8
         num_dim_each_dyn_obs_state = 10
-        observation_spec = CompositeSpec({
+        
+        # 支持静态障碍物LSTM特征（可选）
+        # 如果启用，需要在观测spec中添加static_obstacle
+        enable_static_obstacle_lstm = getattr(self.cfg.algo, 'enable_static_obstacle_lstm', False)
+        
+        observation_spec_dict = {
             "agents": CompositeSpec({
                 "observation": CompositeSpec({
                     "state": UnboundedContinuousTensorSpec((observation_dim,), device=self.cfg.device), 
@@ -115,7 +120,23 @@ class Navigation:
                     "dynamic_obstacle": UnboundedContinuousTensorSpec((1, self.cfg.algo.feature_extractor.dyn_obs_num, num_dim_each_dyn_obs_state), device=self.cfg.device),
                 }),
             }).expand(1)
-        }, shape=[1], device=self.cfg.device)
+        }
+        
+        # 如果启用静态障碍物LSTM，添加相应的观测输入
+        if enable_static_obstacle_lstm:
+            static_obs_height = getattr(self.cfg.algo, 'static_obs_height', 32)
+            static_obs_width = getattr(self.cfg.algo, 'static_obs_width', 32)
+            observation_spec_dict["agents"]["observation"]["static_obstacle"] = \
+                UnboundedContinuousTensorSpec((1, 3, static_obs_height, static_obs_width), device=self.cfg.device)
+            
+            # 初始化静态障碍物特征缓冲区
+            self.static_obstacle_feature_buffer = torch.zeros(
+                1, 10, 3, static_obs_height, static_obs_width,  # 保持10帧历史
+                device=self.cfg.device
+            )
+            self.static_obstacle_buffer_idx = 0
+        
+        observation_spec = CompositeSpec(observation_spec_dict, device=self.cfg.device)
 
         action_dim = 3
         action_spec = CompositeSpec({
@@ -124,7 +145,8 @@ class Navigation:
             })
         }).expand(1, action_dim).to(self.cfg.device)
 
-        policy = PPO(self.cfg.algo, observation_spec, action_spec, self.cfg.device)
+        policy = PPO(self.cfg.algo, observation_spec, action_spec, self.cfg.device, 
+                     enable_static_obstacle_lstm=enable_static_obstacle_lstm)
 
         file_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ckpts")
         checkpoint = "navrl_checkpoint.pt"
@@ -144,6 +166,11 @@ class Navigation:
         使网络具有训练好的参数
         """
         policy.load_state_dict(torch.load(os.path.join(file_dir, checkpoint), map_location=self.cfg.device))
+        
+        # 初始化LSTM隐状态（如果启用）
+        if enable_static_obstacle_lstm and hasattr(policy, 'reset_static_obstacle_lstm'):
+            policy.reset_static_obstacle_lstm(batch_size=1)
+        
         return policy
 
     def takeoff(self):
@@ -280,6 +307,94 @@ class Navigation:
         except rospy.service.ServiceException as e:
             print("[nav-ros]: static obstacle func err!")
         return static_obstacle_pos, static_obstacle_size, static_obstacle_angle
+    
+    # 获取静态障碍物特征并维护时间序列缓冲
+    def get_static_obstacle_feature(self, static_obstacle_pos, static_obstacle_size):
+        """
+        从静态障碍物信息生成特征张量（如距离或深度图）
+        
+        参数：
+            static_obstacle_pos: 障碍物位置列表
+            static_obstacle_size: 障碍物尺寸列表
+        
+        返回：
+            feature_tensor: [1, 3, H, W] 的特征张量
+                           可以是距离图、深度图或多通道特征表示
+        """
+        height = getattr(self.cfg.algo, 'static_obs_height', 32)
+        width = getattr(self.cfg.algo, 'static_obs_width', 32)
+        
+        # 初始化特征张量（3通道：距离图、障碍物密度、障碍物速度变化等）
+        feature = torch.zeros(1, 3, height, width, device=self.cfg.device, dtype=torch.float32)
+        
+        # 第一通道：距离图（从机器人位置到障碍物）
+        # 第二通道：障碍物占据概率
+        # 第三通道：障碍物梯度信息（用于表示障碍物边界）
+        
+        if len(static_obstacle_pos) == 0:
+            return feature
+        
+        # 简单实现：根据障碍物位置和尺寸填充特征
+        pos_np = np.array([p.x for p in static_obstacle_pos])
+        size_np = np.array([s.x for s in static_obstacle_size])  # 取宽度作为简化
+        
+        # 距离归一化范围
+        max_range = 10.0
+        min_dist = np.min(pos_np) if len(pos_np) > 0 else max_range
+        
+        # 绘制距离图
+        for idx, (pos, size) in enumerate(zip(static_obstacle_pos, static_obstacle_size)):
+            # 计算归一化位置
+            norm_x = int((pos.x / max_range + 1.0) / 2.0 * width)
+            norm_y = int((pos.y / max_range + 1.0) / 2.0 * height)
+            
+            norm_x = np.clip(norm_x, 0, width - 1)
+            norm_y = np.clip(norm_y, 0, height - 1)
+            
+            # 距离值（第一通道）
+            distance = np.sqrt(pos.x**2 + pos.y**2 + pos.z**2)
+            dist_normalized = 1.0 - min(distance / max_range, 1.0)
+            feature[0, 0, norm_y, norm_x] = dist_normalized
+            
+            # 占据概率（第二通道）
+            feature[0, 1, norm_y, norm_x] = 1.0
+            
+            # 尺寸信息（第三通道）
+            size_normalized = (size.x + size.y + size.z) / 3.0 / 2.0
+            feature[0, 2, norm_y, norm_x] = np.clip(size_normalized, 0, 1.0)
+        
+        return feature
+    
+    def add_static_obstacle_to_buffer(self, feature):
+        """
+        添加静态障碍物特征到循环缓冲区（用于LSTM时间序列）
+        
+        参数：
+            feature: [1, 3, H, W] 的特征张量
+        """
+        if not hasattr(self, 'static_obstacle_feature_buffer'):
+            return
+        
+        # 添加到缓冲区
+        self.static_obstacle_feature_buffer[:, self.static_obstacle_buffer_idx, :, :, :] = feature
+        
+        # 循环索引
+        self.static_obstacle_buffer_idx = (self.static_obstacle_buffer_idx + 1) % 10
+    
+    def get_static_obstacle_sequence(self):
+        """
+        获取静态障碍物特征序列（用于LSTM）
+        
+        返回：
+            [1, 10, 3, H, W] 的特征序列
+        """
+        if not hasattr(self, 'static_obstacle_feature_buffer'):
+            # 如果没有缓冲区，返回None或零张量
+            height = getattr(self.cfg.algo, 'static_obs_height', 32)
+            width = getattr(self.cfg.algo, 'static_obs_width', 32)
+            return torch.zeros(1, 10, 3, height, width, device=self.cfg.device, dtype=torch.float32)
+        
+        return self.static_obstacle_feature_buffer
     
     #定期更新激光雷达扫描数据，为强化学习决策提供环境感知信息。
     def raycast_callback(self, event):
@@ -447,6 +562,18 @@ class Navigation:
         lidar_scan = torch.tensor(self.raypoints, device=self.cfg.device)
         lidar_scan = (lidar_scan - pos).norm(dim=-1).clamp_max(self.cfg.sensor.lidar_range).reshape(1, 1, self.lidar_hbeams, self.cfg.sensor.lidar_vbeams)
         lidar_scan = self.cfg.sensor.lidar_range - lidar_scan
+        
+        # 如果启用静态障碍物LSTM特征
+        enable_static_obstacle_lstm = getattr(self.cfg.algo, 'enable_static_obstacle_lstm', False)
+        if enable_static_obstacle_lstm:
+            # 获取静态障碍物信息
+            static_obstacle_pos, static_obstacle_size, static_obstacle_angle = self.get_static_obstacles()
+            
+            # 生成当前帧的静态障碍物特征
+            static_obs_feature = self.get_static_obstacle_feature(static_obstacle_pos, static_obstacle_size)
+            
+            # 添加到缓冲区
+            self.add_static_obstacle_to_buffer(static_obs_feature)
 
 
         """动态障碍物特征dynamic obstacle states"""
@@ -482,7 +609,7 @@ class Navigation:
         dyn_obs_states = torch.cat([closest_dyn_obs_rpos_gn, closest_dyn_obs_distance_2d, closest_dyn_obs_distance_z, closest_dyn_obs_vel_g, \
                                     closest_dyn_obs_width.unsqueeze(1), closest_dyn_obs_height.unsqueeze(1)], dim=-1).unsqueeze(0).unsqueeze(0)
         # 组合成tensordict观测 states
-        obs = TensorDict({
+        obs_dict = {
             "agents": TensorDict({
                 "observation": TensorDict({
                     "state": drone_state,
@@ -491,7 +618,15 @@ class Navigation:
                     "dynamic_obstacle": dyn_obs_states
                 })
             })
-        })
+        }
+        
+        # 如果启用静态障碍物LSTM，添加到观测中
+        enable_static_obstacle_lstm = getattr(self.cfg.algo, 'enable_static_obstacle_lstm', False)
+        if enable_static_obstacle_lstm:
+            static_obs_seq = self.get_static_obstacle_sequence()
+            obs_dict["agents"]["observation"]["static_obstacle"] = static_obs_seq
+        
+        obs = TensorDict(obs_dict)
         #判断是否使用RL
         """
         check_obstacle 逻辑：

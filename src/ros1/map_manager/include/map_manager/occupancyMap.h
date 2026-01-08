@@ -28,11 +28,24 @@
 #include <map_manager/clustering/obstacleClustering.h>
 #include <map_manager/GetStaticObstacles.h>
 #include <thread>
+#include "map_manager/lstm_processor.h"
 
 using std::cout; using std::endl;
 namespace mapManager{
 	class occMap{
 	private:
+	    // LSTM相关变量
+      	std::vector<std::vector<Eigen::Vector3d>> obstacle_history_;  // 障碍物历史序列
+    	std::vector<Eigen::Vector3d> current_features_;               // 当前提取的特征
+    	int max_sequence_length_;                                     // LSTM序列长度
+    	bool use_lstm_processing_;                                    // 是否使用LSTM处理
+
+		// LSTM输出的潜在状态
+    	Eigen::VectorXd latent_state_;
+
+
+		std::unique_ptr<LSTMProcessor> lstm_processor_;
+        bool use_lstm_processing_;
 
 	protected:
 		std::string ns_;
@@ -251,6 +264,10 @@ namespace mapManager{
 		int updateOccupancyInfo(const Eigen::Vector3d& point, bool isOccupied);
 		void getCameraPose(const geometry_msgs::PoseStampedConstPtr& pose, Eigen::Matrix4d& camPoseMatrix);
 		void getCameraPose(const nav_msgs::OdometryConstPtr& odom, Eigen::Matrix4d& camPoseMatrix);
+		// LSTM处理函数
+    	void processWithLSTM();
+    	void updateFeatureSequence();
+    	Eigen::VectorXd getLatentState() const;
 	};
 	// inline function
 	// user function
